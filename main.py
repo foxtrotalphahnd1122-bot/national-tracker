@@ -18,7 +18,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def log_message(self, format, *args):
-        return  # ログをキレイに保つため無効化
+        return  # ログ無効化
 
 def start_dummy_server():
     port = int(os.environ.get("PORT", 10000))
@@ -39,49 +39,58 @@ PRIORITY_TAIL = "N936CA"
 
 # 2. National Airlines 識別キーワード
 NATIONAL_OPERATORS = [
-    "national airlines", "national air cargo", "national cargo"
+    "national airlines", "national air cargo", "national cargo", "national air"
 ]
 
-# 3. National Airlines の使用機種
+# 3. ADS-B（adsb.lol）で実際に使用される機体型式コード（完全網羅）
 NATIONAL_TARGET_TYPES = [
-    "b744", "b748", "b742", "b741", "b747", "b-747",
-    "a332", "a333", "a330", "a-330",
-    "b752", "b757", "b-757",
-    "b763", "b767", "b-767"
+    # B747 派生
+    "b744", "b748", "b742", "b741", "b74f", "b74d", "b747", "b-747", "boeing747", "boeing 747",
+    # A330 派生
+    "a332", "a333", "a339", "a330", "a-330", "airbus a330",
+    # B757 派生
+    "b752", "b753", "b757", "b-757", "boeing757", "boeing 757",
+    # B767 派生
+    "b762", "b763", "b764", "b767", "b-767", "boeing767", "boeing 767"
 ]
 
 if not DISCORD_WEBHOOK_URL:
     raise ValueError("エラー: DISCORD_WEBHOOK_URL が設定されていません。")
 
-# 機体の状態管理（前回高度情報＆通知済みリスト）
+# 機体の状態管理
 in_air_states = {}
 notified_icaos = set()
 
 
 def is_national_airlines(ac):
-    """National Airlines 機体（および N936CA）の判定"""
+    """National Airlines 機体（および N936CA）の判定 (RCH/REACH除外)"""
     tail = str(ac.get("r", "")).strip().upper()
     own_op = str(ac.get("ownOp", "")).strip().lower()
     flight = str(ac.get("flight", "")).strip().lower()
     ac_type = str(ac.get("t", "")).strip().lower().replace(" ", "")
-    desc = str(ac.get("desc", "")).strip().lower().replace(" ", "")
+    desc = str(ac.get("desc", "")).strip().lower()
 
-    # 【最優先】特定機体 N936CA は即対象
+    # --- 0. RCH / REACH フライトの完全除外 ---
+    if flight.startswith("rch") or flight.startswith("reach"):
+        return False
+
+    # --- 1. 【最優先】特定機体 N936CA は即対象 ---
     if tail == PRIORITY_TAIL:
         return True
 
-    # フライト番号 (NCR...) または 運用者名
+    # --- 2. フライト番号 (NCR...) または 運用者名 ---
     is_ncr_callsign = flight.startswith("ncr")
     is_national_op = any(op in own_op for op in NATIONAL_OPERATORS)
 
     if not (is_ncr_callsign or is_national_op):
         return False
 
-    # 機種コードのチェック
+    # --- 3. ADS-B表記機種コードのチェック ---
+    desc_clean = desc.replace(" ", "").replace("-", "")
     for target in NATIONAL_TARGET_TYPES:
         target_clean = target.replace("-", "")
-        if (target in ac_type or target_clean in ac_type or
-            target in desc or target_clean in desc):
+        if (target == ac_type or target_clean == ac_type or
+            target in desc or target_clean in desc_clean):
             return True
 
     if is_ncr_callsign or is_national_op:
@@ -181,24 +190,24 @@ def send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, o
 
     # --- 通知テキスト・カラーの設定 ---
     if is_priority_aircraft and is_japan_related:
-        # 【超緊急】 N936CA が「日本の空港」に関係している場合（めっちゃ警告！）
+        # 【超緊急】 N936CA が「日本の空港」に関係している場合（最高警告）
         content_text = f"🚨🚨🚨 **【超緊急・特別警戒】最重要警戒機 {PRIORITY_TAIL} が日本路線（出発: {origin} / 目的: {destination}）で{event_type}されました！！** @everyone"
-        embed_color = 10038562  # ダークレッド
+        embed_color = 0x990000  # ダークレッド
         title_prefix = f"🔥【超極秘/最優先機・日本便】"
     elif is_priority_aircraft:
-        # 【通知送信】 N936CA が海外路線を飛んでいる場合（通常通知）
+        # 【最優先機】 N936CA が海外路線を飛んでいる場合
         content_text = f"📦 **【最優先機検知】{PRIORITY_TAIL} (National Airlines) が{event_type}されました**"
-        embed_color = 15105570  # オレンジ
+        embed_color = 0xE67E22  # オレンジ
         title_prefix = f"⚠️【最優先機・海外路線】"
     elif is_dest_japan:
         # 【目的地注意】 一般のNational便が日本行きの場合
         content_text = f"🚨 **【目的地注意】National Airlines {type_str} ({tail_str}) の目的地が「日本の空港 ({destination})」です！** @everyone"
-        embed_color = 15158332  # 赤色
+        embed_color = 0xFF0000  # 赤色
         title_prefix = f"🇯🇵【日本便検知】"
     else:
         # 【通常通知】 通常のNational便
         content_text = f"📦 **【National Airlines {event_type}】{type_str}: {tail_str} (Callsign: {flight_str})**"
-        embed_color = 3447003   # 青色
+        embed_color = 0x3498DB  # 青色
         title_prefix = f"📦"
 
     payload = {
@@ -265,10 +274,7 @@ def check_national_airlines():
             is_in_air_current = not is_ground
             is_in_air_last = in_air_states.get(icao)
 
-            # --- 条件1: 地上 -> 飛行中 に変化した瞬間（離陸検知） ---
             is_takeoff = (is_in_air_last is False and is_in_air_current is True)
-            
-            # --- 条件2: ADSB電波に新しく出現した（初検知） ---
             is_new_detection = (icao not in notified_icaos and is_in_air_current)
 
             if is_takeoff or is_new_detection:
@@ -281,13 +287,10 @@ def check_national_airlines():
                 
                 send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, origin, destination, location_str, event_type)
                 
-                # 重複通知防止フラグを立てる
                 notified_icaos.add(icao)
 
-            # 状態更新
             in_air_states[icao] = is_in_air_current
 
-        # ADSB受信圏外（着陸・見失った）になった機体は通知済みセットから消去
         notified_icaos = notified_icaos.intersection(current_batch_icaos)
 
     except Exception as e:
@@ -295,7 +298,7 @@ def check_national_airlines():
 
 
 if __name__ == "__main__":
-    print("National Airlines (N936CA 全フライト通知＆日本路線超警告) 開始...")
+    print("National Airlines (ADS-B型式最適化 / RCH除外 / 色分け対応) 監視開始...")
     while True:
         check_national_airlines()
         time.sleep(CHECK_INTERVAL)
