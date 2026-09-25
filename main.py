@@ -37,21 +37,17 @@ JAPAN_AIRPORT_PREFIXES = ("RJ", "RO")
 # 1. 最優先監視対象（特定レジ番）
 PRIORITY_TAIL = "N936CA"
 
-# 2. National Airlines 識別キーワード
+# 2. National Airlines 識別キーワード（すべて大文字で比較）
 NATIONAL_OPERATORS = [
-    "national airlines", "national air cargo", "national cargo", "national air"
+    "NATIONAL AIRLINES", "NATIONAL AIR CARGO", "NATIONAL CARGO", "NATIONAL AIR"
 ]
 
-# 3. ADS-B（adsb.lol）で実際に使用される機体型式コード（完全網羅）
+# 3. ADS-B（adsb.lol）表記に対応した指定機種コード（すべて大文字表記）
 NATIONAL_TARGET_TYPES = [
-    # B747 派生
-    "b744", "b748", "b742", "b741", "b74f", "b74d", "b747", "b-747", "boeing747", "boeing 747",
-    # A330 派生
-    "a332", "a333", "a339", "a330", "a-330", "airbus a330",
-    # B757 派生
-    "b752", "b753", "b757", "b-757", "boeing757", "boeing 757",
-    # B767 派生
-    "b762", "b763", "b764", "b767", "b-767", "boeing767", "boeing 767"
+    "B744", "B748", "B742", "B741", "B74F", "B74D", "B747", "B-747",
+    "A332", "A333", "A339", "A330", "A-330",
+    "B752", "B753", "B757", "B-757",
+    "B762", "B763", "B764", "B767", "B-767"
 ]
 
 if not DISCORD_WEBHOOK_URL:
@@ -63,44 +59,48 @@ notified_icaos = set()
 
 
 def is_national_airlines(ac):
-    """National Airlines 機体（および N936CA）の判定 (RCH/REACH除外)"""
+    """National Airlines 機体（および N936CA）の判定 (大文字・小文字完全吸収 / RCH除外)"""
     tail = str(ac.get("r", "")).strip().upper()
-    own_op = str(ac.get("ownOp", "")).strip().lower()
-    flight = str(ac.get("flight", "")).strip().lower()
-    ac_type = str(ac.get("t", "")).strip().lower().replace(" ", "")
-    desc = str(ac.get("desc", "")).strip().lower()
+    own_op = str(ac.get("ownOp", "")).strip().upper()
+    flight = str(ac.get("flight", "")).strip().upper()
+    ac_type = str(ac.get("t", "")).strip().upper().replace(" ", "")
+    desc = str(ac.get("desc", "")).strip().upper()
 
     # --- 0. RCH / REACH フライトの完全除外 ---
-    if flight.startswith("rch") or flight.startswith("reach"):
+    if flight.startswith("RCH") or flight.startswith("REACH"):
         return False
 
     # --- 1. 【最優先】特定機体 N936CA は即対象 ---
     if tail == PRIORITY_TAIL:
         return True
 
-    # --- 2. フライト番号 (NCR...) または 運用者名 ---
-    is_ncr_callsign = flight.startswith("ncr")
+    # --- 2. 判定要素の抽出 ---
+    is_ncr_callsign = flight.startswith("NCR")
     is_national_op = any(op in own_op for op in NATIONAL_OPERATORS)
-
-    if not (is_ncr_callsign or is_national_op):
-        return False
-
-    # --- 3. ADS-B表記機種コードのチェック ---
-    desc_clean = desc.replace(" ", "").replace("-", "")
+    
+    # 機種コードの一致判定（大文字比較）
+    is_target_type = False
     for target in NATIONAL_TARGET_TYPES:
         target_clean = target.replace("-", "")
         if (target == ac_type or target_clean == ac_type or
-            target in desc or target_clean in desc_clean):
-            return True
+            target in desc or target_clean in desc):
+            is_target_type = True
+            break
 
-    if is_ncr_callsign or is_national_op:
+    # --- 3. 総合判定 ---
+    # コールサイン(NCR) または 運用者名(National) が一致していて、対象機種である場合
+    if (is_ncr_callsign or is_national_op) and is_target_type:
+        return True
+
+    # コールサインが NCR で始まっている場合は機種不問で検知
+    if is_ncr_callsign:
         return True
 
     return False
 
 
 def get_location_name(lat, lon):
-    """緯度・経度から地名・施設名を取得し、座標情報も併記して返す"""
+    """緯度・経度から地名・施設名を取得"""
     if lat is None or lon is None:
         return "位置情報なし"
     
@@ -131,7 +131,7 @@ def get_location_name(lat, lon):
 
 
 def get_direction_text(track):
-    """方位角（0〜360度）を16方位に変換"""
+    """方位角を16方位に変換"""
     if track is None or not isinstance(track, (int, float)):
         return "不明"
     
@@ -188,24 +188,19 @@ def send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, o
     is_origin_japan = is_japan_airport(origin)
     is_japan_related = is_dest_japan or is_origin_japan
 
-    # --- 通知テキスト・カラーの設定 ---
     if is_priority_aircraft and is_japan_related:
-        # 【超緊急】 N936CA が「日本の空港」に関係している場合（最高警告）
         content_text = f"🚨🚨🚨 **【超緊急・特別警戒】最重要警戒機 {PRIORITY_TAIL} が日本路線（出発: {origin} / 目的: {destination}）で{event_type}されました！！** @everyone"
         embed_color = 0x990000  # ダークレッド
         title_prefix = f"🔥【超極秘/最優先機・日本便】"
     elif is_priority_aircraft:
-        # 【最優先機】 N936CA が海外路線を飛んでいる場合
         content_text = f"📦 **【最優先機検知】{PRIORITY_TAIL} (National Airlines) が{event_type}されました**"
         embed_color = 0xE67E22  # オレンジ
         title_prefix = f"⚠️【最優先機・海外路線】"
     elif is_dest_japan:
-        # 【目的地注意】 一般のNational便が日本行きの場合
         content_text = f"🚨 **【目的地注意】National Airlines {type_str} ({tail_str}) の目的地が「日本の空港 ({destination})」です！** @everyone"
         embed_color = 0xFF0000  # 赤色
         title_prefix = f"🇯🇵【日本便検知】"
     else:
-        # 【通常通知】 通常のNational便
         content_text = f"📦 **【National Airlines {event_type}】{type_str}: {tail_str} (Callsign: {flight_str})**"
         embed_color = 0x3498DB  # 青色
         title_prefix = f"📦"
@@ -298,7 +293,7 @@ def check_national_airlines():
 
 
 if __name__ == "__main__":
-    print("National Airlines (ADS-B型式最適化 / RCH除外 / 色分け対応) 監視開始...")
+    print("National Airlines (大文字判定・条件修正版) 監視開始...")
     while True:
         check_national_airlines()
         time.sleep(CHECK_INTERVAL)
