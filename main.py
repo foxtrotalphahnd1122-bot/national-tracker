@@ -64,7 +64,7 @@ TARGET_TYPES = [
     # E-4 / VC-25 / E-6 / E-8 / B707派生
     "e4", "e4b", "e-4b", "vc25", "vc25a", "vc-25a", "vc25b", "vc-25b",
     "b707", "b-707", "b703", "b-703", "boeing707", "boeing 707",
-    "e6", "e-6", "e6b", "e-6b", "e8", "e-8", "e8c", "e-8c", "c137", "c-137",
+    "e6", "e-6", "e6b", "e-6b", "e8", "e-8", "e8c", "e-8-c", "c137", "c-137",
 
     # KDC-10 / DC-10 タンク機
     "kdc10", "kdc-10", "dc10", "dc-10", "dc103"
@@ -76,6 +76,73 @@ EXCLUDE_TYPES = [
     "h60", "h-60", "mh60", "mh-60", "sh60", "sh-60", "hh60", "hh-60", "uh60", "uh-60",
     "blackhawk", "seahawk", "jayhawk", "knighthawk"
 ]
+
+# 5. 世界中の主要な米軍基地・重要拠点および主要国際空港の3レターコード辞書
+AIRPORT_CODE_DICT = {
+    # --- 日本国内の米軍基地・自衛隊基地 ---
+    "横田": "OKO (RJTY)", "yokota": "OKO (RJTY)",
+    "厚木": "NJA (RJTA)", "atsugi": "NJA (RJTA)",
+    "嘉手納": "DNA (RODN)", "kadena": "DNA (RODN)",
+    "普天間": "ODT (ROTM)", "futenma": "ROTM",
+    "三沢": "MSJ (RJSM)", "misawa": "MSJ (RJSM)",
+    "岩国": "IWK (RJOI)", "iwakuni": "RJOI",
+    "横須賀": "YOKOSUKA", "佐世保": "SASEBO", "座間": "ZAMA",
+    "那覇": "OKA (ROAH)", "naha": "OKA (ROAH)",
+    "羽田": "HND (RJTT)", "成田": "NRT (RJAA)", "関西": "KIX (RJBB)",
+    "中部": "NGO (RJGG)", "セントレア": "NGO (RJGG)",
+    "伊丹": "ITM (RJOO)", "福岡": "FUK (RJFF)", "新千歳": "CTS (RJCC)",
+    "小松": "KMQ (RJNK)", "百里": "IBR (RJAH)", "茨城": "IBR (RJAH)",
+    "浜松": "HMT (RJNH)", "美保": "YGJ (RJOH)", "築城": "TKJ (RJFZ)",
+    "新田原": "NVR (RJFN)", "小牧": "NKM (RJNA)",
+
+    # --- グアム・ハワイ・太平洋地域 ---
+    "アンダーセン": "UAM (PGUA)", "andersen": "UAM (PGUA)",
+    "グアム": "GUM (PGUM)", "guam": "GUM (PGUM)",
+    "ヒッカム": "HIK (PHIK)", "hickam": "HIK (PHIK)",
+    "ホノルル": "HNL (PHNL)", "honolulu": "HNL (PHNL)",
+    "真珠湾": "PHCF", "pearl harbor": "PHCF",
+    "ウェーク島": "AWK (PWAK)", "wake island": "PWAK",
+    "ミッドウェー": "MDY (PMDY)",
+    "ジョンストン": "JON",
+
+    # --- 韓国の米軍基地・主要空港 ---
+    "オスサン": "OSN (RKSO)", "osan": "OSN (RKSO)",
+    "群山": "KUV (RKJK)", "kunsan": "KUV (RKJK)",
+    "仁川": "ICN (RKSI)", "incheon": "ICN (RKSI)",
+    "金浦": "GMP (RKSS)", "釜山": "PUS (RKPK)",
+
+    # --- アラスカ・アメリカ本土の主要空軍基地（USAF / 米軍） ---
+    "エルメンドルフ": "EDF (PAEI)", "elmendorf": "EDF (PAEI)",
+    "アイェルソン": "FAI (PAFA)", "eielson": "EIL (PAEI)",
+    "ネリス": "LSV (KLSV)", "nellis": "LSV (KLSV)",
+    "ライトパターソン": "FFO (KFFO)", "wright-patterson": "FFO (KFFO)",
+    "トラビス": "SUU (KSUU)", "travis": "SUU (KSUU)",
+    "ドーバー": "DOV (KDOV)", "dover": "KDOV",
+    "マクコード": "TCM (KTCM)", "mcchord": "KTCM",
+    "マクディル": "MCF (KMCF)", "macdill": "KMCF",
+    "シャールズ": "CHS (KCHS)", "charleston": "KCHS",
+    "スコット": "BLV (KBLV)", "scott": "KBLV",
+    "キャノン": "CVS (KCVS)", "cannon": "KCVS",
+    "ホロマン": "HMN (KHMN)", "holloman": "KHMN",
+    "ダイエス": "DYS (KDYS)", "dyess": "KDYS",
+    "エルスワース": "RMP (KRMP)", "ellsworth": "KRMP",
+    "グランドフォークス": "RDR (KRDR)", "grand forks": "KRDR",
+    "マッコーネル": "IAB (KIAB)", "mcconnell": "KIAB",
+    "フェアートチャイルド": "SKA (KSKA)", "fairchild": "KSKA",
+    "キース": "MGE (KMGE)", "marietta": "KMGE",
+    "バルティモア": "BWI (KBWI)",
+    "ワシントン": "IAD (KIAD)", "andrews": "ADW (KADW)", "アンドルーズ": "ADW (KADW)",
+
+    # --- ヨーロッパ・中東・その他の主要基地 ---
+    "ラムシュタイン": "RMS (ETAR)", "ramstein": "RMS (ETAR)",
+    "ラメンホーフ": "RMS (ETAR)",
+    "レイクheath": "LKH (EGUL)", "lakenheath": "LKH (EGUL)",
+    "ミルデンホール": "MHZ (EGUN)", "mildenhall": "MHZ (EGUN)",
+    "シモネラ": "Aviano", "aviano": "AVO (LIPA)",
+    "インジルリク": "INC (LTAG)", "incirlik": "INC (LTAG)",
+    "アルウデイド": "XJD (OTBH)", "al udeid": "XJD (OTBH)",
+    "ダフラ": "DHA (OMAM)", "al dhafra": "DHA (OMAM)"
+}
 
 if not DISCORD_WEBHOOK_URL:
     raise ValueError("エラー: DISCORD_WEBHOOK_URL が設定されていません。")
@@ -92,16 +159,16 @@ def get_jst_now_str():
 
 def send_startup_notification():
     payload = {
-        "content": "🚀 **【システム起動成功】米軍・特殊機 強化監視プログラムがLive化しました！**",
+        "content": "🚀 **【システム起動成功】世界対応・3レターコード監視プログラムがLive化しました！**",
         "embeds": [{
             "title": "🚀 起動・接続テスト",
             "color": 0x2ECC71,
             "fields": [
-                {"name": "ステータス", "value": "空港・基地名特定機能 ＆ 全方位強化型稼働中", "inline": True},
+                {"name": "ステータス", "value": "世界中の米軍基地・国際空港3レター対応型 稼働中", "inline": True},
                 {"name": "更新間隔", "value": f"{CHECK_INTERVAL}秒", "inline": True},
                 {"name": "時刻", "value": get_jst_now_str(), "inline": True},
             ],
-            "footer": {"text": "ADSB Military Tracker - Enhanced"}
+            "footer": {"text": "ADSB Military Tracker - Global 3-Letter"}
         }]
     }
     try:
@@ -184,37 +251,56 @@ def is_target_aircraft(ac):
     return False
 
 
+def find_airport_code(text):
+    """取得したテキスト内から世界中の辞書に合致する基地・空港を探して3レターコード付きの文字列を返す"""
+    if not text:
+        return None
+    text_lower = text.lower()
+    for key, code in AIRPORT_CODE_DICT.items():
+        if key in text or key.lower() in text_lower:
+            return f"[{code}] {text}"
+    return None
+
+
 def get_location_name(lat, lon):
-    """座標から最寄りの空港・基地名や詳細な地名を優先して取得する"""
+    """座標から世界中の最寄り空港・基地名や3レターコード付きの地名を取得する"""
     if lat is None or lon is None:
         return "位置情報なし"
     
     coord_str = f"({round(lat, 4)}, {round(lon, 4)})"
     
     try:
-        # zoom=11〜12あたりにすると周囲の飛行場や詳細な施設名がヒットしやすくなります
         url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&zoom=11"
-        headers = {"User-Agent": "ADSB-Military-Tracker/2.0"}
+        headers = {"User-Agent": "ADSB-Military-Tracker/2.2"}
         res = requests.get(url, headers=headers, timeout=5).json()
         
         address = res.get("address", {})
         
-        # 飛行場や軍用施設の名前を最優先で探す
         aerodrome = address.get("aerodrome")
         military = address.get("military")
         airway = address.get("aeroway")
-        
-        facility_name = aerodrome or military or airway
-        
         city = (address.get("city") or 
                 address.get("town") or 
                 address.get("village") or 
                 address.get("county") or 
                 address.get("state") or "")
         
+        facility_name = aerodrome or military or airway
+        
+        # 1. 施設名（飛行場や基地）が取れた場合
         if facility_name:
+            matched_with_code = find_airport_code(facility_name)
+            if matched_with_code:
+                return f"🛬 **{matched_with_code}** 付近 {coord_str}"
             return f"🛬 **{facility_name}** 付近 ({city}) {coord_str}"
-        elif city:
+        
+        # 2. 市区町村名などから基地・空港の名前が含まれていないかチェック
+        matched_with_code_city = find_airport_code(city)
+        if matched_with_code_city:
+            return f"🛬 **{matched_with_code_city}** 上空/周辺 {coord_str}"
+        
+        # 3. 通常の都市名
+        if city:
             return f"📍 **{city}** 上空/周辺 {coord_str}"
         else:
             return f"座標 {coord_str}"
@@ -301,7 +387,7 @@ def send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, o
                     {"name": "🛫 出発地", "value": origin, "inline": True},
                     {"name": "🛬 目的地", "value": destination, "inline": True},
                 ],
-                "footer": {"text": "ADSB Military Tracker - Enhanced"}
+                "footer": {"text": "ADSB Military Tracker - Global 3-Letter"}
             }
         ]
     }
@@ -371,7 +457,7 @@ def check_military_takeoff():
 
 
 if __name__ == "__main__":
-    print("米軍機・特殊機（強化監視版）システムを開始しました...")
+    print("米軍機・特殊機（世界対応・3レターコード版）システムを開始しました...")
     
     send_startup_notification()
     
