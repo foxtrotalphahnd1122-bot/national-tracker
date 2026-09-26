@@ -68,8 +68,11 @@ TARGET_TYPES = [
     "kc46", "kc-46", "kdc10", "kdc-10", "dc10", "dc-10", "dc103"
 ]
 
-# 5. 明確に除外したい機種
+# 5. 明確に除外したい機種（EC35、C150、A400、各種ヘリ等）
 EXCLUDE_TYPES = [
+    "ec35", "ec-35", "ec38", "ec130", "ec145", "as350", "as355", "h125", "h130", "h135", "h145",
+    "c150", "c-150", "cessna150", "cessna 150", "c152", "c-152",
+    "a400", "a-400", "a400m",
     "e390", "e-390", "kc390", "kc-390", "c390", "c-390",
     "h60", "h-60", "mh60", "mh-60", "sh60", "sh-60", "hh60", "hh-60", "uh60", "uh-60",
     "blackhawk", "seahawk", "jayhawk", "knighthawk"
@@ -89,16 +92,16 @@ def get_jst_now_str():
 
 def send_startup_notification():
     payload = {
-        "content": "🚀 **【システム起動成功】USAF・Omega柔軟対応版プログラムがLive化しました！**",
+        "content": "🚀 **【システム起動成功】地図連携＆除外強化版プログラムがLive化しました！**",
         "embeds": [{
             "title": "🚀 起動・接続テスト",
             "color": 0x2ECC71,
             "fields": [
-                {"name": "ステータス", "value": "USAF / Omega 最適化フィルター稼働中", "inline": True},
+                {"name": "ステータス", "value": "Googleマップ表示機能・最適化フィルター稼働中", "inline": True},
                 {"name": "更新間隔", "value": f"{CHECK_INTERVAL}秒", "inline": True},
                 {"name": "時刻", "value": get_jst_now_str(), "inline": True},
             ],
-            "footer": {"text": "ADSB Military Tracker - Optimized Filter"}
+            "footer": {"text": "ADSB Military Tracker - Map Integrated"}
         }]
     }
     try:
@@ -138,19 +141,16 @@ def is_target_aircraft(ac):
     own_op = str(ac.get("ownOp", "")).strip().lower()
     flight = str(ac.get("flight", "")).strip().lower()
 
-    # 1. 他軍種や除外対象の運用者名が含まれている場合は即弾く
     for ex_op in EXCLUDE_OPERATORS:
         if ex_op in own_op:
             return False
 
-    # 2. 除外対象機種のチェック
     for exclude in EXCLUDE_TYPES:
         exclude_clean = exclude.replace("-", "")
         if (exclude in ac_type or exclude_clean in ac_type or
             exclude in desc or exclude_clean in desc):
             return False
 
-    # 3. 条件判定（コールサインまたは機種が合致するか）
     is_target_callsign = any(cs in flight for cs in TARGET_CALLSIGNS)
 
     desc_clean = desc.replace(" ", "").replace("-", "")
@@ -167,29 +167,29 @@ def is_target_aircraft(ac):
         if any(k in ac_type or k in desc or k in flight for k in ["135", "w135", "r135", "rc135", "sentry", "boeing707", "b707", "kdc10", "kc46", "vc25", "e-3", "e-4", "e-6", "e-8", "rivet", "titan", "sam"]):
             is_target_type = True
 
-    # 4. 最終判定：USAF/Omega系運用者である、または指定のコールサイン・機種に明確に合致するもの
     is_valid_operator = any(op in own_op for op in ALLOWED_OPERATORS)
 
     if is_valid_operator or is_target_callsign or is_target_type:
-        # ただし、運用者情報が完全に他組織のものと分かる場合は弾くため、上のEXCLUDEでカバー済み
         return True
 
     return False
 
 
-def get_location_name(lat, lon):
+def get_location_info(lat, lon):
     if lat is None or lon is None:
-        return "位置情報なし"
+        return "位置情報なし", None
     
     coord_str = f"({round(lat, 4)}, {round(lon, 4)})"
-    
+    google_maps_url = f"https://www.google.com/maps?q={lat},{lon}"
+    # OpenStreetMapベースの静的地図画像プレビュー用URL
+    static_map_url = f"https://static-maps.yandex.ru/1.x/?ll={lon},{lat}&z=8&size=650,300&l=map&pt={lon},{lat},pm2rdl"
+
     try:
         url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&zoom=10"
-        headers = {"User-Agent": "ADSB-Military-Tracker/2.7"}
+        headers = {"User-Agent": "ADSB-Military-Tracker/2.9"}
         res = requests.get(url, headers=headers, timeout=5).json()
         
         address = res.get("address", {})
-        
         country = address.get("country", "")
         state = address.get("state", "")
         city = address.get("city") or address.get("town") or address.get("village") or address.get("county", "")
@@ -210,13 +210,16 @@ def get_location_name(lat, lon):
 
         if location_parts:
             text_desc = " / ".join(location_parts)
-            return f"📍 **{text_desc}**\n　└ 座標: {coord_str}"
+            location_str = f"📍 **{text_desc}**\n　└ [Googleマップで周辺地図を開く]({google_maps_url}) {coord_str}"
         else:
-            return f"📍 周辺の特定地名なし 座標: {coord_str}"
+            location_str = f"📍 [周辺の特定地名なし - Googleマップで開く]({google_maps_url}) {coord_str}"
+
+        return location_str, static_map_url
 
     except Exception as e:
         print(f"逆ジオコーディングエラー: {e}")
-        return f"📍 座標: {coord_str}"
+        fallback_str = f"📍 [Googleマップで位置を確認]({google_maps_url}) {coord_str}"
+        return fallback_str, static_map_url
 
 
 def get_direction_text(track):
@@ -263,7 +266,7 @@ def get_flight_route(flight_number):
     return "不明", "不明"
 
 
-def send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, origin, destination, location_str, event_type="検知"):
+def send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, origin, destination, location_str, map_image_url, event_type="検知"):
     flight_str = flight if flight else "不明"
     tail_str = tail if tail else "不明"
     type_str = ac_type if ac_type else "対象機"
@@ -279,29 +282,34 @@ def send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, o
     else:
         content_text = f"✈️ **【米空軍/オメガ{event_type}】{type_str}: {tail_str} (Callsign: {flight_str})**"
 
+    embed_data = {
+        "title": f"✈️ {type_str} 飛行ステータス詳細 ({event_type})",
+        "color": embed_color,
+        "fields": [
+            {"name": "🕒 通過時刻 (日本時間)", "value": detection_time_str, "inline": False},
+            {"name": "📍 現在地（地図リンク・周辺情報）", "value": location_str, "inline": False},
+            {"name": "機体型式 (Type)", "value": type_str, "inline": True},
+            {"name": "所属/運用者 (Operator)", "value": op_str, "inline": True},
+            {"name": "機体番号 (Tail / Reg)", "value": tail_str, "inline": True},
+            {"name": "フライト番号 (Callsign)", "value": flight_str, "inline": True},
+            {"name": "ICAOコード", "value": icao.upper(), "inline": True},
+            {"name": "高度", "value": f"{alt} ft" if isinstance(alt, (int, float)) else str(alt), "inline": True},
+            {"name": "🧭 進行方位（向き）", "value": direction_str, "inline": True},
+            {"name": "🛫 出発地", "value": origin, "inline": True},
+            {"name": "🛬 目的地", "value": destination, "inline": True},
+        ],
+        "footer": {"text": "ADSB Military Tracker - Map Integrated"}
+    }
+
+    # 地図画像URLが取得できている場合はEmbedに画像（プレビュー）として埋め込む
+    if map_image_url:
+        embed_data["image"] = {"url": map_image_url}
+
     payload = {
         "content": content_text,
-        "embeds": [
-            {
-                "title": f"✈️ {type_str} 飛行ステータス詳細 ({event_type})",
-                "color": embed_color,
-                "fields": [
-                    {"name": "🕒 通過時刻 (日本時間)", "value": detection_time_str, "inline": False},
-                    {"name": "📍 現在地（座標・周辺情報）", "value": location_str, "inline": False},
-                    {"name": "機体型式 (Type)", "value": type_str, "inline": True},
-                    {"name": "所属/運用者 (Operator)", "value": op_str, "inline": True},
-                    {"name": "機体番号 (Tail / Reg)", "value": tail_str, "inline": True},
-                    {"name": "フライト番号 (Callsign)", "value": flight_str, "inline": True},
-                    {"name": "ICAOコード", "value": icao.upper(), "inline": True},
-                    {"name": "高度", "value": f"{alt} ft" if isinstance(alt, (int, float)) else str(alt), "inline": True},
-                    {"name": "🧭 進行方位（向き）", "value": direction_str, "inline": True},
-                    {"name": "🛫 出発地", "value": origin, "inline": True},
-                    {"name": "🛬 目的地", "value": destination, "inline": True},
-                ],
-                "footer": {"text": "ADSB Military Tracker - Optimized Filter"}
-            }
-        ]
+        "embeds": [embed_data]
     }
+
     try:
         requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
         print(f"[{get_jst_now_str()}] Discord通知完了({event_type}): {type_str} {tail_str} ({flight_str})")
@@ -351,11 +359,11 @@ def check_military_takeoff():
                 event_type = "離陸" if is_takeoff else "検知"
                 print(f"【{event_type}】 機種: {ac_type}, Tail: {tail}, Flight: {flight}")
                 
-                location_str = get_location_name(lat, lon)
+                location_str, map_image_url = get_location_info(lat, lon)
                 fa_origin, destination = get_flight_route(flight)
                 origin = fa_origin if fa_origin != "不明" else location_str
                 
-                send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, origin, destination, location_str, event_type)
+                send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, origin, destination, location_str, map_image_url, event_type)
                 
                 notified_icaos.add(icao)
 
@@ -368,7 +376,7 @@ def check_military_takeoff():
 
 
 if __name__ == "__main__":
-    print("米軍機・特殊機（USAF/Omega最適化フィルタ版）システムを開始しました...")
+    print("米軍機・特殊機（地図連携版）システムを開始しました...")
     
     send_startup_notification()
     
