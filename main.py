@@ -92,7 +92,7 @@ def get_jst_now_str():
     return datetime.now(jst).strftime('%Y-%m-%d %H:%M:%S (JST)')
 
 
-# === クールなカスタムロガー関数 ===
+# === カスタムリッチロガー関数 ===
 def log_info(message):
     print(f"🟢 [INFO] [{get_jst_now_str()}] {message}")
 
@@ -108,15 +108,15 @@ def log_alert(message):
 
 def send_startup_notification():
     payload = {
-        "content": "✨ **【システム起動成功】リッチロガー搭載・完璧版プログラムが稼働を開始しました！**",
+        "content": "✨ **【システム起動成功】完全日本語対応・完璧版プログラムが稼働を開始しました！**",
         "embeds": [{
             "title": "🚀 起動・接続テスト (Production Ready)",
             "color": 0x2ECC71,
             "fields": [
-                {"name": "ステータス", "value": f"高速ポーリング({CHECK_INTERVAL}秒)・降下警戒・除外フィルター完備", "inline": True},
+                {"name": "ステータス", "value": f"高速ポーリング({CHECK_INTERVAL}秒)・降下警戒・日本語マップ稼働中", "inline": True},
                 {"name": "時刻", "value": get_jst_now_str(), "inline": True},
             ],
-            "footer": {"text": "ADSB Military Tracker - Perfect Edition with Cool Logger"}
+            "footer": {"text": "ADSB Military Tracker - Ultimate Japanese Edition"}
         }]
     }
     try:
@@ -198,11 +198,14 @@ def get_location_info(lat, lon):
     
     coord_str = f"({round(lat, 4)}, {round(lon, 4)})"
     google_maps_url = f"https://www.google.com/maps?q={lat},{lon}"
-    static_map_url = f"https://static-maps.yandex.ru/1.x/?ll={lon},{lat}&z=8&size=650,300&l=map&pt={lon},{lat},pm2rdl"
+    
+    # 静止画マップを日本語表記パラメータ付きで指定
+    static_map_url = f"https://static-maps.yandex.ru/1.x/?ll={lon},{lat}&z=9&size=650,300&l=map&lang=ja_JP&pt={lon},{lat},pm2rdl"
 
     try:
+        # 日本語での住所・施設名取得のために Accept-Language: ja を指定
         url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&zoom=10"
-        headers = {"User-Agent": "ADSB-Military-Tracker/4.1"}
+        headers = {"User-Agent": "ADSB-Military-Tracker/4.2", "Accept-Language": "ja"}
         res = requests.get(url, headers=headers, timeout=5).json()
         
         address = res.get("address", {})
@@ -226,7 +229,7 @@ def get_location_info(lat, lon):
 
         if location_parts:
             text_desc = " / ".join(location_parts)
-            location_str = f"📍 **{text_desc}**\n　└ [Googleマップで周辺地図を開く]({google_maps_url}) {coord_str}"
+            location_str = f"📍 **{text_desc}**\n　└ [Googleマップで日本語の周辺地図を開く]({google_maps_url}) {coord_str}"
         else:
             location_str = f"📍 [周辺の特定地名なし - Googleマップで開く]({google_maps_url}) {coord_str}"
 
@@ -317,7 +320,7 @@ def send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, o
             {"name": "🛫 出発地", "value": origin, "inline": True},
             {"name": "🛬 目的地", "value": destination, "inline": True},
         ],
-        "footer": {"text": "ADSB Military Tracker - Cool Logger Edition"}
+        "footer": {"text": "ADSB Military Tracker - Ultimate Japanese Edition"}
     }
 
     if map_image_url:
@@ -410,7 +413,7 @@ def check_military_takeoff():
 
 
 if __name__ == "__main__":
-    log_info("米軍機・特殊機トラッカー（リッチロガー版）システムを開始しました...")
+    log_info("米軍機・特殊機トラッカー（完全日本語対応版）システムを開始しました...")
     
     send_startup_notification()
     
