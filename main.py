@@ -2,6 +2,7 @@ import os
 import time
 import math
 import threading
+from datetime import datetime, timezone, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import requests
 
@@ -84,6 +85,12 @@ in_air_states = {}
 notified_icaos = set()
 
 
+def get_jst_now_str():
+    """現在の日本時間（JST）を文字列で取得する"""
+    jst = timezone(timedelta(hours=9))
+    return datetime.now(jst).strftime('%Y-%m-%d %H:%M:%S (JST)')
+
+
 def send_startup_notification():
     """Live化した瞬間に1回だけ送る接続テスト通知"""
     payload = {
@@ -94,14 +101,14 @@ def send_startup_notification():
             "fields": [
                 {"name": "ステータス", "value": "ダミーサーバー & 監視ループ稼働中", "inline": True},
                 {"name": "更新間隔", "value": f"{CHECK_INTERVAL}秒", "inline": True},
-                {"name": "時刻", "value": time.strftime('%H:%M:%S'), "inline": True},
+                {"name": "時刻", "value": get_jst_now_str(), "inline": True},
             ],
             "footer": {"text": "ADSB Military Tracker"}
         }]
     }
     try:
         requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
-        print(f"[{time.strftime('%H:%M:%S')}] 起動直後テスト通知の送信成功！")
+        print(f"[{get_jst_now_str()}] 起動直後テスト通知の送信成功！")
     except Exception as e:
         print(f"起動テスト送信エラー: {e}")
 
@@ -262,6 +269,7 @@ def send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, o
     op_str = own_op if own_op else "米軍/関連機関"
     direction_str = get_direction_text(track)
     is_japan_airport = is_destination_japan_airport(destination)
+    detection_time_str = get_jst_now_str()
 
     embed_color = get_embed_color(type_str, is_japan_airport)
 
@@ -277,6 +285,8 @@ def send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, o
                 "title": f"✈️ {type_str} 飛行ステータス詳細 ({event_type})",
                 "color": embed_color,
                 "fields": [
+                    {"name": "🕒 通過時刻 (日本時間)", "value": detection_time_str, "inline": False},
+                    {"name": "📍 通過位置（地名＆座標）", "value": location_str, "inline": False},
                     {"name": "機体型式 (Type)", "value": type_str, "inline": True},
                     {"name": "所属/運用者 (Operator)", "value": op_str, "inline": True},
                     {"name": "機体番号 (Tail / Reg)", "value": tail_str, "inline": True},
@@ -284,7 +294,6 @@ def send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, o
                     {"name": "ICAOコード", "value": icao.upper(), "inline": True},
                     {"name": "高度", "value": f"{alt} ft" if isinstance(alt, (int, float)) else str(alt), "inline": True},
                     {"name": "🧭 進行方位（向き）", "value": direction_str, "inline": True},
-                    {"name": "📍 反応位置（地名＆座標）", "value": location_str, "inline": False},
                     {"name": "🛫 出発地", "value": origin, "inline": True},
                     {"name": "🛬 目的地", "value": destination, "inline": True},
                 ],
@@ -294,7 +303,7 @@ def send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, o
     }
     try:
         requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
-        print(f"[{time.strftime('%H:%M:%S')}] Discord通知完了({event_type}): {type_str} {tail_str} ({flight_str})")
+        print(f"[{get_jst_now_str()}] Discord通知完了({event_type}): {type_str} {tail_str} ({flight_str})")
     except Exception as e:
         print(f"送信エラー: {e}")
 
