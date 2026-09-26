@@ -40,34 +40,33 @@ ALLOWED_OPERATORS = [
     "us air force", "usaf", "united states air force",
     "us navy", "usn", "united states navy",
     "us marine corps", "usmc", "united states marine corps",
-    "omega air", "omega aerial refueling", "omega tanker"
+    "omega air", "omega aerial refueling", "omega tanker",
+    "united states department of defense", "dod"
 ]
 
-# 2. 米軍特有の代表的コールサイン
+# 2. 米軍特有の代表的コールサイン・ミッションコード
 TARGET_CALLSIGNS = [
-    "sentry",    # E-3 AWACS
-    "recon", "jake", "cobra", "snoop", "bolt", "pyton", "olay", # RC-135 / WC-135 / OC-135
-    "hobo", "gold", "ethyl", "teal", "qid", "m35", "boeing" # Tanker / C-135系 / USAF
+    # 指揮統制・要人輸送
+    "titan", "af1", "air force one", "sam", "exec", "venus", "knight",
+    # 偵察・電子戦 (RC-135等)
+    "sentry", "recon", "jake", "cobra", "snoop", "bolt", "pyton", "olay", 
+    "rivet", "ball", "joint", "comet", "hog", "switch", "viper",
+    # タンカー・給油機 (KC-135, KC-46, KDC-10等)
+    "hobo", "gold", "ethyl", "teal", "qid", "m35", "boeing",
+    "esso", "shell", "pack", "bptr", "tank", "asco", "lunar"
 ]
 
-# 3. 監視対象の指定機種（徹底網羅）
+# 3. 監視対象の指定機種
 TARGET_TYPES = [
-    # C-135 派生
     "k35r", "k35q", "c135", "c35", "kc135", "kc-135", "nc135", "tc135",
-    "r135", "rc135", "rc-135",
+    "r135", "rc135", "rc-135", "rc135u", "rc135v", "rc135w", "rc135s",
     "w135", "wc135", "wc-135", "wc135w", "wc135c",
     "ec135", "ec-135", "oc135", "oc-135",
-    
-    # E-3 (AWACS) 関連
     "e3tf", "e3cf", "e3a", "e3b", "e3c", "e3d", "e3g", "e3", "e-3", "sentry",
-    
-    # E-4 / VC-25 / E-6 / E-8 / B707派生
     "e4", "e4b", "e-4b", "vc25", "vc25a", "vc-25a", "vc25b", "vc-25b",
     "b707", "b-707", "b703", "b-703", "boeing707", "boeing 707",
     "e6", "e-6", "e6b", "e-6b", "e8", "e-8", "e8c", "e-8-c", "c137", "c-137",
-
-    # KDC-10 / DC-10 タンク機
-    "kdc10", "kdc-10", "dc10", "dc-10", "dc103"
+    "kc46", "kc-46", "kdc10", "kdc-10", "dc10", "dc-10", "dc103"
 ]
 
 # 4. 明確に除外したい機種
@@ -77,9 +76,8 @@ EXCLUDE_TYPES = [
     "blackhawk", "seahawk", "jayhawk", "knighthawk"
 ]
 
-# 5. 世界中の主要な米軍基地・重要拠点および主要国際空港の3レターコード辞書
+# 5. 世界中の主要な米軍基地・重要拠点および主要国際空港の補助辞書
 AIRPORT_CODE_DICT = {
-    # --- 日本国内の米軍基地・自衛隊基地 ---
     "横田": "OKO (RJTY)", "yokota": "OKO (RJTY)",
     "厚木": "NJA (RJTA)", "atsugi": "NJA (RJTA)",
     "嘉手納": "DNA (RODN)", "kadena": "DNA (RODN)",
@@ -90,58 +88,9 @@ AIRPORT_CODE_DICT = {
     "那覇": "OKA (ROAH)", "naha": "OKA (ROAH)",
     "羽田": "HND (RJTT)", "成田": "NRT (RJAA)", "関西": "KIX (RJBB)",
     "中部": "NGO (RJGG)", "セントレア": "NGO (RJGG)",
-    "伊丹": "ITM (RJOO)", "福岡": "FUK (RJFF)", "新千歳": "CTS (RJCC)",
-    "小松": "KMQ (RJNK)", "百里": "IBR (RJAH)", "茨城": "IBR (RJAH)",
-    "浜松": "HMT (RJNH)", "美保": "YGJ (RJOH)", "築城": "TKJ (RJFZ)",
-    "新田原": "NVR (RJFN)", "小牧": "NKM (RJNA)",
-
-    # --- グアム・ハワイ・太平洋地域 ---
     "アンダーセン": "UAM (PGUA)", "andersen": "UAM (PGUA)",
-    "グアム": "GUM (PGUM)", "guam": "GUM (PGUM)",
-    "ヒッカム": "HIK (PHIK)", "hickam": "HIK (PHIK)",
-    "ホノルル": "HNL (PHNL)", "honolulu": "HNL (PHNL)",
-    "真珠湾": "PHCF", "pearl harbor": "PHCF",
-    "ウェーク島": "AWK (PWAK)", "wake island": "PWAK",
-    "ミッドウェー": "MDY (PMDY)",
-    "ジョンストン": "JON",
-
-    # --- 韓国の米軍基地・主要空港 ---
     "オスサン": "OSN (RKSO)", "osan": "OSN (RKSO)",
-    "群山": "KUV (RKJK)", "kunsan": "KUV (RKJK)",
-    "仁川": "ICN (RKSI)", "incheon": "ICN (RKSI)",
-    "金浦": "GMP (RKSS)", "釜山": "PUS (RKPK)",
-
-    # --- アラスカ・アメリカ本土の主要空軍基地（USAF / 米軍） ---
-    "エルメンドルフ": "EDF (PAEI)", "elmendorf": "EDF (PAEI)",
-    "アイェルソン": "FAI (PAFA)", "eielson": "EIL (PAEI)",
-    "ネリス": "LSV (KLSV)", "nellis": "LSV (KLSV)",
-    "ライトパターソン": "FFO (KFFO)", "wright-patterson": "FFO (KFFO)",
-    "トラビス": "SUU (KSUU)", "travis": "SUU (KSUU)",
-    "ドーバー": "DOV (KDOV)", "dover": "KDOV",
-    "マクコード": "TCM (KTCM)", "mcchord": "KTCM",
-    "マクディル": "MCF (KMCF)", "macdill": "KMCF",
-    "シャールズ": "CHS (KCHS)", "charleston": "KCHS",
-    "スコット": "BLV (KBLV)", "scott": "KBLV",
-    "キャノン": "CVS (KCVS)", "cannon": "KCVS",
-    "ホロマン": "HMN (KHMN)", "holloman": "KHMN",
-    "ダイエス": "DYS (KDYS)", "dyess": "KDYS",
-    "エルスワース": "RMP (KRMP)", "ellsworth": "KRMP",
-    "グランドフォークス": "RDR (KRDR)", "grand forks": "KRDR",
-    "マッコーネル": "IAB (KIAB)", "mcconnell": "KIAB",
-    "フェアートチャイルド": "SKA (KSKA)", "fairchild": "KSKA",
-    "キース": "MGE (KMGE)", "marietta": "KMGE",
-    "バルティモア": "BWI (KBWI)",
-    "ワシントン": "IAD (KIAD)", "andrews": "ADW (KADW)", "アンドルーズ": "ADW (KADW)",
-
-    # --- ヨーロッパ・中東・その他の主要基地 ---
     "ラムシュタイン": "RMS (ETAR)", "ramstein": "RMS (ETAR)",
-    "ラメンホーフ": "RMS (ETAR)",
-    "レイクheath": "LKH (EGUL)", "lakenheath": "LKH (EGUL)",
-    "ミルデンホール": "MHZ (EGUN)", "mildenhall": "MHZ (EGUN)",
-    "シモネラ": "Aviano", "aviano": "AVO (LIPA)",
-    "インジルリク": "INC (LTAG)", "incirlik": "INC (LTAG)",
-    "アルウデイド": "XJD (OTBH)", "al udeid": "XJD (OTBH)",
-    "ダフラ": "DHA (OMAM)", "al dhafra": "DHA (OMAM)"
 }
 
 if not DISCORD_WEBHOOK_URL:
@@ -152,23 +101,22 @@ notified_icaos = set()
 
 
 def get_jst_now_str():
-    """現在の日本時間（JST）を文字列で取得する"""
     jst = timezone(timedelta(hours=9))
     return datetime.now(jst).strftime('%Y-%m-%d %H:%M:%S (JST)')
 
 
 def send_startup_notification():
     payload = {
-        "content": "🚀 **【システム起動成功】世界対応・3レターコード監視プログラムがLive化しました！**",
+        "content": "🚀 **【システム起動成功】位置情報・地名文字解説強化版プログラムがLive化しました！**",
         "embeds": [{
             "title": "🚀 起動・接続テスト",
             "color": 0x2ECC71,
             "fields": [
-                {"name": "ステータス", "value": "世界中の米軍基地・国際空港3レター対応型 稼働中", "inline": True},
+                {"name": "ステータス", "value": "座標からの逆ジオコーディング強化 稼働中", "inline": True},
                 {"name": "更新間隔", "value": f"{CHECK_INTERVAL}秒", "inline": True},
                 {"name": "時刻", "value": get_jst_now_str(), "inline": True},
             ],
-            "footer": {"text": "ADSB Military Tracker - Global 3-Letter"}
+            "footer": {"text": "ADSB Military Tracker - Location Enhanced"}
         }]
     }
     try:
@@ -180,23 +128,20 @@ def send_startup_notification():
 
 def get_embed_color(ac_type, is_japan_destination):
     if is_japan_destination:
-        return 0xFF0000  # 赤色（日本目的地・最高警戒）
+        return 0xFF0000
 
     type_clean = ac_type.lower().replace(" ", "").replace("-", "")
 
     if any(k in type_clean for k in ["w135", "wc135", "r135", "rc135", "oc135", "ec135"]):
         return 0x9B59B6  # 紫色（偵察機）
-
     if any(k in type_clean for k in ["e3", "sentry"]):
         return 0xF1C40F  # 黄色（AWACS）
-
-    if any(k in type_clean for k in ["e4", "vc25", "e6", "e8"]):
-        return 0x900C3F  # 濃い赤（指揮統制機）
-
-    if any(k in type_clean for k in ["k35", "kc135", "c135", "kdc10", "dc10"]):
+    if any(k in type_clean for k in ["e4", "vc25", "e6", "e-6", "e8"]):
+        return 0x900C3F  # 濃い赤（指揮統制・要人輸送）
+    if any(k in type_clean for k in ["k35", "kc135", "c135", "kc46", "kdc10", "dc10"]):
         return 0xE67E22  # オレンジ色（タンカー）
 
-    return 0x3498DB  # 青色
+    return 0x3498DB
 
 
 def is_target_aircraft(ac):
@@ -206,7 +151,7 @@ def is_target_aircraft(ac):
     if lat is None or lon is None or alt is None:
         return False
 
-    ac_type = str(ac.get("t", "")).strip().lower().replace(" ", "")
+    ac_type = str(ac.get("t", "")).strip().lower().replace(" ", "").replace("-", "")
     desc = str(ac.get("desc", "")).strip().lower()
     own_op = str(ac.get("ownOp", "")).strip().lower()
     flight = str(ac.get("flight", "")).strip().lower()
@@ -232,14 +177,14 @@ def is_target_aircraft(ac):
     is_target_type = False
 
     for target in TARGET_TYPES:
-        target_clean = target.replace("-", "")
-        if (target == ac_type or target_clean == ac_type or
+        target_clean = target.replace("-", "").replace(" ", "")
+        if (target_clean in ac_type or
             target in desc or target_clean in desc_clean):
             is_target_type = True
             break
 
     if not is_target_type:
-        if any(k in ac_type or k in desc for k in ["135", "w135", "sentry", "boeing707", "b707", "kdc10", "vc25", "e-3", "e-4", "e-6", "e-8"]):
+        if any(k in ac_type or k in desc or k in flight for k in ["135", "w135", "r135", "rc135", "sentry", "boeing707", "b707", "kdc10", "kc46", "vc25", "e-3", "e-4", "e-6", "e-8", "rivet", "titan", "sam"]):
             is_target_type = True
 
     if is_target_callsign:
@@ -251,61 +196,49 @@ def is_target_aircraft(ac):
     return False
 
 
-def find_airport_code(text):
-    """取得したテキスト内から世界中の辞書に合致する基地・空港を探して3レターコード付きの文字列を返す"""
-    if not text:
-        return None
-    text_lower = text.lower()
-    for key, code in AIRPORT_CODE_DICT.items():
-        if key in text or key.lower() in text_lower:
-            return f"[{code}] {text}"
-    return None
-
-
 def get_location_name(lat, lon):
-    """座標から世界中の最寄り空港・基地名や3レターコード付きの地名を取得する"""
+    """座標からOpenStreetMap APIを用いて詳細な地名や周辺情報を組み立てて返す"""
     if lat is None or lon is None:
         return "位置情報なし"
     
     coord_str = f"({round(lat, 4)}, {round(lon, 4)})"
     
     try:
-        url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&zoom=11"
-        headers = {"User-Agent": "ADSB-Military-Tracker/2.2"}
+        url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&zoom=10"
+        headers = {"User-Agent": "ADSB-Military-Tracker/2.5"}
         res = requests.get(url, headers=headers, timeout=5).json()
         
         address = res.get("address", {})
         
-        aerodrome = address.get("aerodrome")
-        military = address.get("military")
-        airway = address.get("aeroway")
-        city = (address.get("city") or 
-                address.get("town") or 
-                address.get("village") or 
-                address.get("county") or 
-                address.get("state") or "")
-        
-        facility_name = aerodrome or military or airway
-        
-        # 1. 施設名（飛行場や基地）が取れた場合
-        if facility_name:
-            matched_with_code = find_airport_code(facility_name)
-            if matched_with_code:
-                return f"🛬 **{matched_with_code}** 付近 {coord_str}"
-            return f"🛬 **{facility_name}** 付近 ({city}) {coord_str}"
-        
-        # 2. 市区町村名などから基地・空港の名前が含まれていないかチェック
-        matched_with_code_city = find_airport_code(city)
-        if matched_with_code_city:
-            return f"🛬 **{matched_with_code_city}** 上空/周辺 {coord_str}"
-        
-        # 3. 通常の都市名
+        # 取得できる細かい住所要素を抽出
+        country = address.get("country", "")
+        state = address.get("state", "")
+        city = address.get("city") or address.get("town") or address.get("village") or address.get("county", "")
+        suburb = address.get("suburb") or address.get("neighbourhood", "")
+        aerodrome = address.get("aerodrome") or address.get("military") or address.get("aeroway", "")
+
+        # 組み立て用のテキストリスト
+        location_parts = []
+        if aerodrome:
+            location_parts.append(f"施設/基地: {aerodrome}")
+        if country:
+            location_parts.append(f"国: {country}")
+        if state:
+            location_parts.append(f"地域: {state}")
         if city:
-            return f"📍 **{city}** 上空/周辺 {coord_str}"
+            location_parts.append(f"市区町村: {city}")
+        if suburb:
+            location_parts.append(f"地区: {suburb}")
+
+        if location_parts:
+            text_desc = " / ".join(location_parts)
+            return f"📍 **{text_desc}**\n　└ 座標: {coord_str}"
         else:
-            return f"座標 {coord_str}"
-    except Exception:
-        return f"座標 {coord_str}"
+            return f"📍 周辺の特定地名なし 座標: {coord_str}"
+
+    except Exception as e:
+        print(f"逆ジオコーディングエラー: {e}")
+        return f"📍 座標: {coord_str}"
 
 
 def get_direction_text(track):
@@ -376,7 +309,7 @@ def send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, o
                 "color": embed_color,
                 "fields": [
                     {"name": "🕒 通過時刻 (日本時間)", "value": detection_time_str, "inline": False},
-                    {"name": "🛫 最寄り空港・通過位置", "value": location_str, "inline": False},
+                    {"name": "📍 現在地（座標・周辺情報）", "value": location_str, "inline": False},
                     {"name": "機体型式 (Type)", "value": type_str, "inline": True},
                     {"name": "所属/運用者 (Operator)", "value": op_str, "inline": True},
                     {"name": "機体番号 (Tail / Reg)", "value": tail_str, "inline": True},
@@ -387,7 +320,7 @@ def send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, o
                     {"name": "🛫 出発地", "value": origin, "inline": True},
                     {"name": "🛬 目的地", "value": destination, "inline": True},
                 ],
-                "footer": {"text": "ADSB Military Tracker - Global 3-Letter"}
+                "footer": {"text": "ADSB Military Tracker - Location Enhanced"}
             }
         ]
     }
@@ -457,7 +390,7 @@ def check_military_takeoff():
 
 
 if __name__ == "__main__":
-    print("米軍機・特殊機（世界対応・3レターコード版）システムを開始しました...")
+    print("米軍機・特殊機（座標・地名文字解説強化版）システムを開始しました...")
     
     send_startup_notification()
     
