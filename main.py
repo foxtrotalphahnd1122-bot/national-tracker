@@ -35,13 +35,18 @@ CHECK_INTERVAL = int(os.environ.get("CHECK_INTERVAL", "60"))
 
 JAPAN_AIRPORT_PREFIXES = ("RJ", "RO")
 
-# 1. 厳格に許可する運用者（USAF と Omega Air のみ）
+# 1. 許可する運用者のキーワード（USAF および Omega関連）
 ALLOWED_OPERATORS = [
-    "us air force", "usaf", "united states air force",
-    "omega air", "omega aerial refueling", "omega tanker"
+    "air force", "usaf", "omega air", "omega aerial", "omega tanker"
 ]
 
-# 2. 米軍特有の代表的コールサイン・ミッションコード
+# 2. 除外したい他軍種・民間チャーターのキーワード（誤爆防止用）
+EXCLUDE_OPERATORS = [
+    "navy", "usn", "marine", "usmc", "army", "coast guard", 
+    "national air", "ncr", "rch", "reach"
+]
+
+# 3. 米軍特有の代表的コールサイン・ミッションコード
 TARGET_CALLSIGNS = [
     "titan", "af1", "air force one", "sam", "exec", "venus", "knight",
     "sentry", "recon", "jake", "cobra", "snoop", "bolt", "pyton", "olay", 
@@ -50,7 +55,7 @@ TARGET_CALLSIGNS = [
     "esso", "shell", "pack", "bptr", "tank", "asco", "lunar"
 ]
 
-# 3. 監視対象の指定機種
+# 4. 監視対象の指定機種
 TARGET_TYPES = [
     "k35r", "k35q", "c135", "c35", "kc135", "kc-135", "nc135", "tc135",
     "r135", "rc135", "rc-135", "rc135u", "rc135v", "rc135w", "rc135s",
@@ -63,7 +68,7 @@ TARGET_TYPES = [
     "kc46", "kc-46", "kdc10", "kdc-10", "dc10", "dc-10", "dc103"
 ]
 
-# 4. 明確に除外したい機種
+# 5. 明確に除外したい機種
 EXCLUDE_TYPES = [
     "e390", "e-390", "kc390", "kc-390", "c390", "c-390",
     "h60", "h-60", "mh60", "mh-60", "sh60", "sh-60", "hh60", "hh-60", "uh60", "uh-60",
@@ -84,16 +89,16 @@ def get_jst_now_str():
 
 def send_startup_notification():
     payload = {
-        "content": "🚀 **【システム起動成功】USAF・Omega限定 厳格フィルタリング版プログラムがLive化しました！**",
+        "content": "🚀 **【システム起動成功】USAF・Omega柔軟対応版プログラムがLive化しました！**",
         "embeds": [{
             "title": "🚀 起動・接続テスト",
             "color": 0x2ECC71,
             "fields": [
-                {"name": "ステータス", "value": "USAF / Omega Air 限定 稼働中", "inline": True},
+                {"name": "ステータス", "value": "USAF / Omega 最適化フィルター稼働中", "inline": True},
                 {"name": "更新間隔", "value": f"{CHECK_INTERVAL}秒", "inline": True},
                 {"name": "時刻", "value": get_jst_now_str(), "inline": True},
             ],
-            "footer": {"text": "ADSB Military Tracker - Strict Filter"}
+            "footer": {"text": "ADSB Military Tracker - Optimized Filter"}
         }]
     }
     try:
@@ -133,10 +138,10 @@ def is_target_aircraft(ac):
     own_op = str(ac.get("ownOp", "")).strip().lower()
     flight = str(ac.get("flight", "")).strip().lower()
 
-    # 1. 運用者（own_op）が USAF または Omega Air に完全に合致するかチェック
-    is_valid_operator = any(op in own_op for op in ALLOWED_OPERATORS)
-    if not is_valid_operator:
-        return False
+    # 1. 他軍種や除外対象の運用者名が含まれている場合は即弾く
+    for ex_op in EXCLUDE_OPERATORS:
+        if ex_op in own_op:
+            return False
 
     # 2. 除外対象機種のチェック
     for exclude in EXCLUDE_TYPES:
@@ -145,6 +150,7 @@ def is_target_aircraft(ac):
             exclude in desc or exclude_clean in desc):
             return False
 
+    # 3. 条件判定（コールサインまたは機種が合致するか）
     is_target_callsign = any(cs in flight for cs in TARGET_CALLSIGNS)
 
     desc_clean = desc.replace(" ", "").replace("-", "")
@@ -161,7 +167,11 @@ def is_target_aircraft(ac):
         if any(k in ac_type or k in desc or k in flight for k in ["135", "w135", "r135", "rc135", "sentry", "boeing707", "b707", "kdc10", "kc46", "vc25", "e-3", "e-4", "e-6", "e-8", "rivet", "titan", "sam"]):
             is_target_type = True
 
-    if is_target_callsign or is_target_type:
+    # 4. 最終判定：USAF/Omega系運用者である、または指定のコールサイン・機種に明確に合致するもの
+    is_valid_operator = any(op in own_op for op in ALLOWED_OPERATORS)
+
+    if is_valid_operator or is_target_callsign or is_target_type:
+        # ただし、運用者情報が完全に他組織のものと分かる場合は弾くため、上のEXCLUDEでカバー済み
         return True
 
     return False
@@ -175,7 +185,7 @@ def get_location_name(lat, lon):
     
     try:
         url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&zoom=10"
-        headers = {"User-Agent": "ADSB-Military-Tracker/2.6"}
+        headers = {"User-Agent": "ADSB-Military-Tracker/2.7"}
         res = requests.get(url, headers=headers, timeout=5).json()
         
         address = res.get("address", {})
@@ -288,7 +298,7 @@ def send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, o
                     {"name": "🛫 出発地", "value": origin, "inline": True},
                     {"name": "🛬 目的地", "value": destination, "inline": True},
                 ],
-                "footer": {"text": "ADSB Military Tracker - Strict Filter"}
+                "footer": {"text": "ADSB Military Tracker - Optimized Filter"}
             }
         ]
     }
@@ -358,7 +368,7 @@ def check_military_takeoff():
 
 
 if __name__ == "__main__":
-    print("米軍機・特殊機（USAF/Omega限定フィルタ版）システムを開始しました...")
+    print("米軍機・特殊機（USAF/Omega最適化フィルタ版）システムを開始しました...")
     
     send_startup_notification()
     
