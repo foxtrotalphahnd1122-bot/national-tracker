@@ -43,19 +43,19 @@ ALLOWED_OPERATORS = [
     "omega air", "omega aerial refueling", "omega tanker"
 ]
 
-# 2. 米軍特有の代表的コールサイン（RCH / REACH / NCR を除外）
+# 2. 米軍特有の代表的コールサイン
 TARGET_CALLSIGNS = [
     "sentry",    # E-3 AWACS
     "recon", "jake", "cobra", "snoop", "bolt", "pyton", "olay", # RC-135 / WC-135 / OC-135
     "hobo", "gold", "ethyl", "teal", "qid", "m35", "boeing" # Tanker / C-135系 / USAF
 ]
 
-# 3. 監視対象の指定機種（ADS-B表記に完全対応 / W135含む軍用機メイン）
+# 3. 監視対象の指定機種（徹底網羅）
 TARGET_TYPES = [
-    # C-135 派生 (KC / RC / WC / EC / OC / NC / TC / W135)
+    # C-135 派生
     "k35r", "k35q", "c135", "c35", "kc135", "kc-135", "nc135", "tc135",
     "r135", "rc135", "rc-135",
-    "w135", "wc135", "wc-135", "wc135w", "wc135c", # WC-135 (Constant Phoenix)
+    "w135", "wc135", "wc-135", "wc135w", "wc135c",
     "ec135", "ec-135", "oc135", "oc-135",
     
     # E-3 (AWACS) 関連
@@ -70,7 +70,7 @@ TARGET_TYPES = [
     "kdc10", "kdc-10", "dc10", "dc-10", "dc103"
 ]
 
-# 4. 明確に除外したい機種（ヘリ・小型機・E390等）
+# 4. 明確に除外したい機種
 EXCLUDE_TYPES = [
     "e390", "e-390", "kc390", "kc-390", "c390", "c-390",
     "h60", "h-60", "mh60", "mh-60", "sh60", "sh-60", "hh60", "hh-60", "uh60", "uh-60",
@@ -80,7 +80,6 @@ EXCLUDE_TYPES = [
 if not DISCORD_WEBHOOK_URL:
     raise ValueError("エラー: DISCORD_WEBHOOK_URL が設定されていません。")
 
-# 機体の状態管理（前回高度情報＆通知済みリスト）
 in_air_states = {}
 notified_icaos = set()
 
@@ -92,18 +91,17 @@ def get_jst_now_str():
 
 
 def send_startup_notification():
-    """Live化した瞬間に1回だけ送る接続テスト通知"""
     payload = {
-        "content": "🚀 **【システム起動成功】米軍・オメガ機 監視プログラムがLive化しました！**",
+        "content": "🚀 **【システム起動成功】米軍・特殊機 強化監視プログラムがLive化しました！**",
         "embeds": [{
             "title": "🚀 起動・接続テスト",
             "color": 0x2ECC71,
             "fields": [
-                {"name": "ステータス", "value": "ダミーサーバー & 監視ループ稼働中", "inline": True},
+                {"name": "ステータス", "value": "空港・基地名特定機能 ＆ 全方位強化型稼働中", "inline": True},
                 {"name": "更新間隔", "value": f"{CHECK_INTERVAL}秒", "inline": True},
                 {"name": "時刻", "value": get_jst_now_str(), "inline": True},
             ],
-            "footer": {"text": "ADSB Military Tracker"}
+            "footer": {"text": "ADSB Military Tracker - Enhanced"}
         }]
     }
     try:
@@ -114,29 +112,27 @@ def send_startup_notification():
 
 
 def get_embed_color(ac_type, is_japan_destination):
-    """機種や目的地に応じてEmbed通知の枠線の色（HEXカラーコード）を切り替える"""
     if is_japan_destination:
         return 0xFF0000  # 赤色（日本目的地・最高警戒）
 
     type_clean = ac_type.lower().replace(" ", "").replace("-", "")
 
     if any(k in type_clean for k in ["w135", "wc135", "r135", "rc135", "oc135", "ec135"]):
-        return 0x9B59B6  # 紫色
+        return 0x9B59B6  # 紫色（偵察機）
 
     if any(k in type_clean for k in ["e3", "sentry"]):
-        return 0xF1C40F  # 黄色
-
-    if any(k in type_clean for k in ["k35", "kc135", "c135", "kdc10", "dc10"]):
-        return 0xE67E22  # オレンジ色
+        return 0xF1C40F  # 黄色（AWACS）
 
     if any(k in type_clean for k in ["e4", "vc25", "e6", "e8"]):
-        return 0x900C3F  # 濃い赤
+        return 0x900C3F  # 濃い赤（指揮統制機）
+
+    if any(k in type_clean for k in ["k35", "kc135", "c135", "kdc10", "dc10"]):
+        return 0xE67E22  # オレンジ色（タンカー）
 
     return 0x3498DB  # 青色
 
 
 def is_target_aircraft(ac):
-    # 位置情報（緯度・経度）や高度が欠損しているものはそもそも対象外にする
     lat = ac.get("lat")
     lon = ac.get("lon")
     alt = ac.get("alt_baro")
@@ -189,31 +185,39 @@ def is_target_aircraft(ac):
 
 
 def get_location_name(lat, lon):
+    """座標から最寄りの空港・基地名や詳細な地名を優先して取得する"""
     if lat is None or lon is None:
         return "位置情報なし"
     
     coord_str = f"({round(lat, 4)}, {round(lon, 4)})"
     
     try:
-        url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&zoom=10"
-        headers = {"User-Agent": "ADSB-Military-Tracker/1.0"}
+        # zoom=11〜12あたりにすると周囲の飛行場や詳細な施設名がヒットしやすくなります
+        url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&zoom=11"
+        headers = {"User-Agent": "ADSB-Military-Tracker/2.0"}
         res = requests.get(url, headers=headers, timeout=5).json()
         
         address = res.get("address", {})
-        aeroway = address.get("aeroway") or address.get("military")
         
-        if aeroway:
-            return f"{aeroway} 周辺 {coord_str}"
+        # 飛行場や軍用施設の名前を最優先で探す
+        aerodrome = address.get("aerodrome")
+        military = address.get("military")
+        airway = address.get("aeroway")
         
-        location_name = (address.get("aerodrome") or 
-                         address.get("city") or 
-                         address.get("town") or 
-                         address.get("county") or 
-                         address.get("state") or "")
+        facility_name = aerodrome or military or airway
         
-        if location_name:
-            return f"{location_name} 上空/周辺 {coord_str}"
-        return f"座標 {coord_str}"
+        city = (address.get("city") or 
+                address.get("town") or 
+                address.get("village") or 
+                address.get("county") or 
+                address.get("state") or "")
+        
+        if facility_name:
+            return f"🛬 **{facility_name}** 付近 ({city}) {coord_str}"
+        elif city:
+            return f"📍 **{city}** 上空/周辺 {coord_str}"
+        else:
+            return f"座標 {coord_str}"
     except Exception:
         return f"座標 {coord_str}"
 
@@ -286,7 +290,7 @@ def send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, o
                 "color": embed_color,
                 "fields": [
                     {"name": "🕒 通過時刻 (日本時間)", "value": detection_time_str, "inline": False},
-                    {"name": "📍 通過位置（地名＆座標）", "value": location_str, "inline": False},
+                    {"name": "🛫 最寄り空港・通過位置", "value": location_str, "inline": False},
                     {"name": "機体型式 (Type)", "value": type_str, "inline": True},
                     {"name": "所属/運用者 (Operator)", "value": op_str, "inline": True},
                     {"name": "機体番号 (Tail / Reg)", "value": tail_str, "inline": True},
@@ -297,7 +301,7 @@ def send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, o
                     {"name": "🛫 出発地", "value": origin, "inline": True},
                     {"name": "🛬 目的地", "value": destination, "inline": True},
                 ],
-                "footer": {"text": "ADSB Military Tracker"}
+                "footer": {"text": "ADSB Military Tracker - Enhanced"}
             }
         ]
     }
@@ -367,12 +371,10 @@ def check_military_takeoff():
 
 
 if __name__ == "__main__":
-    print("米軍機・特殊機（USAF, Navy, USMC, Omega Tanker）の監視システムを開始しました...")
+    print("米軍機・特殊機（強化監視版）システムを開始しました...")
     
-    # Liveになった瞬間に起動テスト通知を即座に送信
     send_startup_notification()
     
-    # 以降は60秒おきにループ
     while True:
         time.sleep(CHECK_INTERVAL)
         check_military_takeoff()
