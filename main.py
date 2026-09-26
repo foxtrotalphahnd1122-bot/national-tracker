@@ -5,7 +5,7 @@ import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import requests
 
-# === Renderのポート検知をクリア＆501エラー解消用ダミーサーバー ===
+# === 1. Renderのポート検知をクリア＆501エラー解消用ダミーサーバー ===
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -18,65 +18,32 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def log_message(self, format, *args):
-        return  # ログをキレイに保つため無効化
+        return  # ログ無効化（UptimeRobotのアクセスによるログの汚れを防ぐ）
 
 def start_dummy_server():
     port = int(os.environ.get("PORT", 10000))
     server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
     server.serve_forever()
 
+# バックグラウンドスレッドで常時ダミーサーバーを稼働させスリープを防止
 threading.Thread(target=start_dummy_server, daemon=True).start()
 
-# === 設定項目 ===
+# === 2. 設定項目 ===
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 FLIGHTAWARE_API_KEY = os.environ.get("FLIGHTAWARE_API_KEY")
 CHECK_INTERVAL = int(os.environ.get("CHECK_INTERVAL", "60"))
 
 JAPAN_AIRPORT_PREFIXES = ("RJ", "RO")
 
-# ==========================================
-# 【Aグループ】米軍・特殊機・オメガ空中給油機の設定
-# ==========================================
-MIL_ALLOWED_OPERATORS = [
-    "us air force", "usaf", "united states air force",
-    "us navy", "usn", "united states navy",
-    "us marine corps", "usmc", "united states marine corps",
-    "omega air", "omega aerial refueling", "omega tanker"
-]
-
-MIL_TARGET_CALLSIGNS = [
-    "sentry",
-    "recon", "jake", "cobra", "snoop", "bolt", "pyton", "olay",
-    "hobo", "gold", "ethyl", "teal", "qid", "m35", "boeing"
-]
-
-MIL_TARGET_TYPES = [
-    "k35r", "k35q", "c135", "c35", "kc135", "kc-135", "nc135", "tc135",
-    "r135", "rc135", "rc-135",
-    "w135", "wc135", "wc-135", "wc135w", "wc135c",
-    "ec135", "ec-135", "oc135", "oc-135",
-    "e3tf", "e3cf", "e3a", "e3b", "e3c", "e3d", "e3g", "e3", "e-3", "sentry",
-    "e4", "e4b", "e-4b", "vc25", "vc25a", "vc-25a", "vc25b", "vc-25b",
-    "b707", "b-707", "b703", "b-703", "boeing707", "boeing 707",
-    "e6", "e-6", "e6b", "e-6b", "e8", "e-8", "e8c", "e-8c", "c137", "c-137",
-    "kdc10", "kdc-10", "dc10", "dc-10", "dc103"
-]
-
-MIL_EXCLUDE_TYPES = [
-    "e390", "e-390", "kc390", "kc-390", "c390", "c-390",
-    "h60", "h-60", "mh60", "mh-60", "sh60", "sh-60", "hh60", "hh-60", "uh60", "uh-60",
-    "blackhawk", "seahawk", "jayhawk", "knighthawk"
-]
-
-# ==========================================
-# 【Bグループ】National Airlines の設定
-# ==========================================
+# 1. 最優先監視対象（特定レジ番）
 PRIORITY_TAIL = "N936CA"
 
+# 2. National Airlines 識別キーワード（すべて大文字で比較）
 NATIONAL_OPERATORS = [
     "NATIONAL AIRLINES", "NATIONAL AIR CARGO", "NATIONAL CARGO", "NATIONAL AIR"
 ]
 
+# 3. ADS-B（adsb.lol）表記に対応した指定機種コード（すべて大文字表記）
 NATIONAL_TARGET_TYPES = [
     "B744", "B748", "B742", "B741", "B74F", "B74D", "B747", "B-747",
     "A332", "A333", "A339", "A330", "A-330",
@@ -88,36 +55,73 @@ if not DISCORD_WEBHOOK_URL:
     raise ValueError("エラー: DISCORD_WEBHOOK_URL が設定されていません。")
 
 # 機体の状態管理
-mil_in_air_states = {}
-mil_notified_icaos = set()
-
-nat_in_air_states = {}
-nat_notified_icaos = set()
+in_air_states = {}
+notified_icaos = set()
 
 
 def send_startup_notification():
-    """起動成功通知"""
+    """Live化した瞬間に1回だけ送る接続テスト通知"""
     payload = {
-        "content": "🚀 **【システム統合起動成功】米軍・オメガ機 ＆ National Airlines 監視プログラムがLive化しました！**",
+        "content": "🚀 **【システム起動成功】National Airlines 専用監視プログラムがLive化しました！**",
         "embeds": [{
-            "title": "🚀 起動・接続テスト (デュアル監視)",
+            "title": "🚀 起動・接続テスト",
             "color": 0x2ECC71,
             "fields": [
-                {"name": "監視グループ 1", "value": "米軍特殊機・オメガ空中給油機", "inline": True},
-                {"name": "監視グループ 2", "value": f"National Airlines (優先: {PRIORITY_TAIL})", "inline": True},
+                {"name": "監視対象", "value": f"National Airlines (最優先: {PRIORITY_TAIL})", "inline": True},
                 {"name": "更新間隔", "value": f"{CHECK_INTERVAL}秒", "inline": True},
+                {"name": "時刻", "value": time.strftime('%H:%M:%S'), "inline": True},
             ],
-            "footer": {"text": "ADSB Military & National Tracker"}
+            "footer": {"text": "National Airlines Priority Tracker"}
         }]
     }
     try:
         requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
-        print(f"[{time.strftime('%H:%M:%S')}] 統合起動テスト通知の送信成功！")
+        print(f"[{time.strftime('%H:%M:%S')}] 起動直後テスト通知の送信成功！")
     except Exception as e:
         print(f"起動テスト送信エラー: {e}")
 
 
+def is_national_airlines(ac):
+    """National Airlines 機体（および N936CA）の判定 (大文字・小文字完全吸収 / RCH除外)"""
+    tail = str(ac.get("r", "")).strip().upper()
+    own_op = str(ac.get("ownOp", "")).strip().upper()
+    flight = str(ac.get("flight", "")).strip().upper()
+    ac_type = str(ac.get("t", "")).strip().upper().replace(" ", "")
+    desc = str(ac.get("desc", "")).strip().upper()
+
+    # --- 0. RCH / REACH フライトの完全除外 ---
+    if flight.startswith("RCH") or flight.startswith("REACH"):
+        return False
+
+    # --- 1. 【最優先】特定機体 N936CA は即対象 ---
+    if tail == PRIORITY_TAIL:
+        return True
+
+    # --- 2. 判定要素の抽出 ---
+    is_ncr_callsign = flight.startswith("NCR")
+    is_national_op = any(op in own_op for op in NATIONAL_OPERATORS)
+    
+    # 機種コードの一致判定（大文字比較）
+    is_target_type = False
+    for target in NATIONAL_TARGET_TYPES:
+        target_clean = target.replace("-", "")
+        if (target == ac_type or target_clean == ac_type or
+            target in desc or target_clean in desc):
+            is_target_type = True
+            break
+
+    # --- 3. 総合判定 ---
+    if (is_ncr_callsign or is_national_op) and is_target_type:
+        return True
+
+    if is_ncr_callsign:
+        return True
+
+    return False
+
+
 def get_location_name(lat, lon):
+    """緯度・経度から地名・施設名を取得"""
     if lat is None or lon is None:
         return "位置情報なし"
     
@@ -125,7 +129,7 @@ def get_location_name(lat, lon):
     
     try:
         url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&zoom=10"
-        headers = {"User-Agent": "ADSB-Dual-Tracker/1.0"}
+        headers = {"User-Agent": "National-Airlines-Tracker/1.0"}
         res = requests.get(url, headers=headers, timeout=5).json()
         
         address = res.get("address", {})
@@ -148,6 +152,7 @@ def get_location_name(lat, lon):
 
 
 def get_direction_text(track):
+    """方位角を16方位に変換"""
     if track is None or not isinstance(track, (int, float)):
         return "不明"
     
@@ -161,11 +166,12 @@ def get_direction_text(track):
     return f"{directions[idx]} ({int(track)}°)"
 
 
-def is_destination_japan_airport(destination_str):
-    if not destination_str or destination_str in ["不明", "N/A"]:
+def is_japan_airport(airport_code):
+    """空港コードが日本のもの（RJ/RO始まり）か判定"""
+    if not airport_code or airport_code in ["不明", "N/A"]:
         return False
-    dest_clean = destination_str.strip().upper()
-    return dest_clean.startswith(JAPAN_AIRPORT_PREFIXES)
+    code_clean = airport_code.strip().upper()
+    return code_clean.startswith(JAPAN_AIRPORT_PREFIXES)
 
 
 def get_flight_route(flight_number):
@@ -191,153 +197,7 @@ def get_flight_route(flight_number):
     return "不明", "不明"
 
 
-# ==========================================
-# 判定ロジック (米軍機・オメガ機)
-# ==========================================
-def is_target_military_aircraft(ac):
-    ac_type = str(ac.get("t", "")).strip().lower().replace(" ", "")
-    desc = str(ac.get("desc", "")).strip().lower()
-    own_op = str(ac.get("ownOp", "")).strip().lower()
-    flight = str(ac.get("flight", "")).strip().lower()
-
-    if "national air" in own_op or flight.startswith("ncr") or flight.startswith("rch") or flight.startswith("reach"):
-        return False
-
-    for exclude in MIL_EXCLUDE_TYPES:
-        exclude_clean = exclude.replace("-", "")
-        if (exclude in ac_type or exclude_clean in ac_type or
-            exclude in desc or exclude_clean in desc):
-            return False
-
-    is_target_callsign = any(cs in flight for cs in MIL_TARGET_CALLSIGNS)
-
-    is_allowed_op = False
-    if own_op:
-        is_allowed_op = any(op in own_op for op in MIL_ALLOWED_OPERATORS)
-    else:
-        is_allowed_op = True
-
-    desc_clean = desc.replace(" ", "").replace("-", "")
-    is_target_type = False
-
-    for target in MIL_TARGET_TYPES:
-        target_clean = target.replace("-", "")
-        if (target == ac_type or target_clean == ac_type or
-            target in desc or target_clean in desc_clean):
-            is_target_type = True
-            break
-
-    if not is_target_type:
-        if any(k in ac_type or k in desc for k in ["135", "w135", "sentry", "boeing707", "b707", "kdc10", "vc25", "e-3", "e-4", "e-6", "e-8"]):
-            is_target_type = True
-
-    if is_target_callsign:
-        return True
-
-    if is_allowed_op and is_target_type:
-        return True
-
-    return False
-
-
-# ==========================================
-# 判定ロジック (National Airlines)
-# ==========================================
-def is_national_airlines(ac):
-    tail = str(ac.get("r", "")).strip().upper()
-    own_op = str(ac.get("ownOp", "")).strip().upper()
-    flight = str(ac.get("flight", "")).strip().upper()
-    ac_type = str(ac.get("t", "")).strip().upper().replace(" ", "")
-    desc = str(ac.get("desc", "")).strip().upper()
-
-    if flight.startswith("RCH") or flight.startswith("REACH"):
-        return False
-
-    if tail == PRIORITY_TAIL:
-        return True
-
-    is_ncr_callsign = flight.startswith("NCR")
-    is_national_op = any(op in own_op for op in NATIONAL_OPERATORS)
-    
-    is_target_type = False
-    for target in NATIONAL_TARGET_TYPES:
-        target_clean = target.replace("-", "")
-        if (target == ac_type or target_clean == ac_type or
-            target in desc or target_clean in desc):
-            is_target_type = True
-            break
-
-    if (is_ncr_callsign or is_national_op) and is_target_type:
-        return True
-
-    if is_ncr_callsign:
-        return True
-
-    return False
-
-
-# ==========================================
-# 通知送信関数 (米軍・オメガ機用)
-# ==========================================
-def send_military_notification(icao, tail, flight, ac_type, own_op, alt, track, origin, destination, location_str, event_type="検知"):
-    flight_str = flight if flight else "不明"
-    tail_str = tail if tail else "不明"
-    type_str = ac_type if ac_type else "対象機"
-    op_str = own_op if own_op else "米軍/関連機関"
-    direction_str = get_direction_text(track)
-    is_japan_airport = is_destination_japan_airport(destination)
-
-    # カラー切り分け
-    if is_japan_airport:
-        embed_color = 0xFF0000
-        content_text = f"🚨 **【重要】{type_str} ({tail_str}) の目的地が「日本の空港 ({destination})」に設定されました！** @everyone"
-    else:
-        type_clean = type_str.lower().replace(" ", "").replace("-", "")
-        if any(k in type_clean for k in ["w135", "wc135", "r135", "rc135", "oc135", "ec135"]):
-            embed_color = 0x9B59B6
-        elif any(k in type_clean for k in ["e3", "sentry"]):
-            embed_color = 0xF1C40F
-        elif any(k in type_clean for k in ["k35", "kc135", "c135", "kdc10", "dc10"]):
-            embed_color = 0xE67E22
-        elif any(k in type_clean for k in ["e4", "vc25", "e6", "e8"]):
-            embed_color = 0x900C3F
-        else:
-            embed_color = 0x3498DB
-        content_text = f"✈️ **【米軍機{event_type}】{type_str}: {tail_str} (Callsign: {flight_str})**"
-
-    payload = {
-        "content": content_text,
-        "embeds": [
-            {
-                "title": f"✈️ {type_str} 飛行ステータス詳細 ({event_type})",
-                "color": embed_color,
-                "fields": [
-                    {"name": "機体型式 (Type)", "value": type_str, "inline": True},
-                    {"name": "所属/運用者 (Operator)", "value": op_str, "inline": True},
-                    {"name": "機体番号 (Tail / Reg)", "value": tail_str, "inline": True},
-                    {"name": "フライト番号 (Callsign)", "value": flight_str, "inline": True},
-                    {"name": "ICAOコード", "value": icao.upper(), "inline": True},
-                    {"name": "高度", "value": f"{alt} ft" if isinstance(alt, (int, float)) else str(alt), "inline": True},
-                    {"name": "🧭 進行方位（向き）", "value": direction_str, "inline": True},
-                    {"name": "📍 反応位置（地名＆座標）", "value": location_str, "inline": False},
-                    {"name": "🛫 出発地", "value": origin, "inline": True},
-                    {"name": "🛬 目的地", "value": destination, "inline": True},
-                ],
-                "footer": {"text": "ADSB Military Tracker"}
-            }
-        ]
-    }
-    try:
-        requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
-        print(f"[{time.strftime('%H:%M:%S')}] 米軍Discord通知完了({event_type}): {type_str} {tail_str} ({flight_str})")
-    except Exception as e:
-        print(f"米軍送信エラー: {e}")
-
-
-# ==========================================
-# 通知送信関数 (National Airlines用)
-# ==========================================
-def send_national_notification(icao, tail, flight, ac_type, own_op, alt, track, origin, destination, location_str, event_type="検知"):
+def send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, origin, destination, location_str, event_type="検知"):
     flight_str = flight if flight else "不明"
     tail_str = tail if tail else "不明"
     type_str = ac_type if ac_type else "National Airlines 機"
@@ -345,8 +205,8 @@ def send_national_notification(icao, tail, flight, ac_type, own_op, alt, track, 
     direction_str = get_direction_text(track)
     
     is_priority_aircraft = (tail_str.upper() == PRIORITY_TAIL)
-    is_dest_japan = is_destination_japan_airport(destination)
-    is_origin_japan = is_destination_japan_airport(origin)
+    is_dest_japan = is_japan_airport(destination)
+    is_origin_japan = is_japan_airport(origin)
     is_japan_related = is_dest_japan or is_origin_japan
 
     if is_priority_aircraft and is_japan_related:
@@ -390,17 +250,13 @@ def send_national_notification(icao, tail, flight, ac_type, own_op, alt, track, 
     }
     try:
         requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
-        print(f"[{time.strftime('%H:%M:%S')}] National Discord通知完了({event_type}): {type_str} {tail_str} ({flight_str})")
+        print(f"[{time.strftime('%H:%M:%S')}] Discord通知完了({event_type}): {type_str} {tail_str} ({flight_str})")
     except Exception as e:
-        print(f"National送信エラー: {e}")
+        print(f"送信エラー: {e}")
 
 
-# ==========================================
-# メインの定期監視ループ処理
-# ==========================================
-def run_dual_tracking():
-    global mil_in_air_states, mil_notified_icaos
-    global nat_in_air_states, nat_notified_icaos
+def check_national_airlines():
+    global in_air_states, notified_icaos
 
     url = "https://api.adsb.lol/v2/mil"
     try:
@@ -409,18 +265,22 @@ def run_dual_tracking():
         if not ac_list:
             return
 
-        mil_current_batch = set()
-        nat_current_batch = set()
+        current_batch_icaos = set()
 
         for ac in ac_list:
+            if not is_national_airlines(ac):
+                continue
+
             icao = ac.get("hex", "").strip()
             if not icao:
                 continue
 
+            current_batch_icaos.add(icao)
+
             tail = ac.get("r", "N/A").strip()
             flight = ac.get("flight", "N/A").strip()
             ac_type = ac.get("t", ac.get("desc", "不明")).strip()
-            own_op = ac.get("ownOp", "不明").strip()
+            own_op = ac.get("ownOp", "National Airlines").strip()
             alt = ac.get("alt_baro")
             track = ac.get("track")
             lat = ac.get("lat")
@@ -428,60 +288,38 @@ def run_dual_tracking():
 
             is_ground = (alt == "ground") or (isinstance(alt, (int, float)) and alt < 100)
             is_in_air_current = not is_ground
+            is_in_air_last = in_air_states.get(icao)
 
-            # --- 1. 米軍・オメガ機のチェック ---
-            if is_target_military_aircraft(ac):
-                mil_current_batch.add(icao)
-                mil_last = mil_in_air_states.get(icao)
+            is_takeoff = (is_in_air_last is False and is_in_air_current is True)
+            is_new_detection = (icao not in notified_icaos and is_in_air_current)
 
-                is_takeoff = (mil_last is False and is_in_air_current is True)
-                is_new = (icao not in mil_notified_icaos and is_in_air_current)
+            if is_takeoff or is_new_detection:
+                event_type = "離陸" if is_takeoff else "検知"
+                print(f"【{event_type}】 National Airlines - 機種: {ac_type}, Tail: {tail}, Flight: {flight}")
+                
+                location_str = get_location_name(lat, lon)
+                fa_origin, destination = get_flight_route(flight)
+                origin = fa_origin if fa_origin != "不明" else location_str
+                
+                send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, origin, destination, location_str, event_type)
+                
+                notified_icaos.add(icao)
 
-                if is_takeoff or is_new:
-                    event_type = "離陸" if is_takeoff else "検知"
-                    print(f"【米軍機 {event_type】 機種: {ac_type}, Tail: {tail}, Flight: {flight}")
-                    location_str = get_location_name(lat, lon)
-                    fa_origin, destination = get_flight_route(flight)
-                    origin = fa_origin if fa_origin != "不明" else location_str
-                    send_military_notification(icao, tail, flight, ac_type, own_op, alt, track, origin, destination, location_str, event_type)
-                    mil_notified_icaos.add(icao)
+            in_air_states[icao] = is_in_air_current
 
-                mil_in_air_states[icao] = is_in_air_current
-
-            # --- 2. National Airlines のチェック ---
-            if is_national_airlines(ac):
-                nat_current_batch.add(icao)
-                nat_last = nat_in_air_states.get(icao)
-
-                is_takeoff = (nat_last is False and is_in_air_current is True)
-                is_new = (icao not in nat_notified_icaos and is_in_air_current)
-
-                if is_takeoff or is_new:
-                    event_type = "離陸" if is_takeoff else "検知"
-                    print(f"【National {event_type}】 機種: {ac_type}, Tail: {tail}, Flight: {flight}")
-                    location_str = get_location_name(lat, lon)
-                    fa_origin, destination = get_flight_route(flight)
-                    origin = fa_origin if fa_origin != "不明" else location_str
-                    send_national_notification(icao, tail, flight, ac_type, "National Airlines", alt, track, origin, destination, location_str, event_type)
-                    nat_notified_icaos.add(icao)
-
-                nat_in_air_states[icao] = is_in_air_current
-
-        # 圏外に出た機体をクリア
-        mil_notified_icaos = mil_notified_icaos.intersection(mil_current_batch)
-        nat_notified_icaos = nat_notified_icaos.intersection(nat_current_batch)
+        notified_icaos = notified_icaos.intersection(current_batch_icaos)
 
     except Exception as e:
-        print(f"統合チェック中エラー: {e}")
+        print(f"チェック中エラー: {e}")
 
 
 if __name__ == "__main__":
-    print("米軍機・オメガ機 ＆ National Airlines のデュアル監視システムを開始しました...")
+    print("National Airlines 専用監視システムを開始しました...")
     
-    # 起動時の即時テスト通知
+    # Liveになった瞬間に起動テスト通知を即座に送信
     send_startup_notification()
     
-    # 監視ループ
+    # 以降は監視ループ
     while True:
         time.sleep(CHECK_INTERVAL)
-        run_dual_tracking()
+        check_national_airlines()
