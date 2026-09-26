@@ -68,8 +68,9 @@ TARGET_TYPES = [
     "kc46", "kc-46", "kdc10", "kdc-10", "dc10", "dc-10", "dc103"
 ]
 
-# 5. 明確に除外したい機種（EC35、C150、A400、各種ヘリ等）
+# 5. 明確に除外したい機種（E35L、EC35、C150、A400、各種ヘリ等）
 EXCLUDE_TYPES = [
+    "e35l", "e-35l",
     "ec35", "ec-35", "ec38", "ec130", "ec145", "as350", "as355", "h125", "h130", "h135", "h145",
     "c150", "c-150", "cessna150", "cessna 150", "c152", "c-152",
     "a400", "a-400", "a400m",
@@ -92,16 +93,16 @@ def get_jst_now_str():
 
 def send_startup_notification():
     payload = {
-        "content": "🚀 **【システム起動成功】地図連携＆除外強化版プログラムがLive化しました！**",
+        "content": "🚀 **【システム起動成功】E35L除外追加版プログラムがLive化しました！**",
         "embeds": [{
             "title": "🚀 起動・接続テスト",
             "color": 0x2ECC71,
             "fields": [
-                {"name": "ステータス", "value": "Googleマップ表示機能・最適化フィルター稼働中", "inline": True},
+                {"name": "ステータス", "value": "E35L除外フィルター・マップ連携稼働中", "inline": True},
                 {"name": "更新間隔", "value": f"{CHECK_INTERVAL}秒", "inline": True},
                 {"name": "時刻", "value": get_jst_now_str(), "inline": True},
             ],
-            "footer": {"text": "ADSB Military Tracker - Map Integrated"}
+            "footer": {"text": "ADSB Military Tracker - E35L Excluded"}
         }]
     }
     try:
@@ -141,10 +142,12 @@ def is_target_aircraft(ac):
     own_op = str(ac.get("ownOp", "")).strip().lower()
     flight = str(ac.get("flight", "")).strip().lower()
 
+    # 1. 除外対象の運用者名をチェック
     for ex_op in EXCLUDE_OPERATORS:
         if ex_op in own_op:
             return False
 
+    # 2. 除外対象の機種をチェック（E35L, EC35, C150, A400等）
     for exclude in EXCLUDE_TYPES:
         exclude_clean = exclude.replace("-", "")
         if (exclude in ac_type or exclude_clean in ac_type or
@@ -181,12 +184,11 @@ def get_location_info(lat, lon):
     
     coord_str = f"({round(lat, 4)}, {round(lon, 4)})"
     google_maps_url = f"https://www.google.com/maps?q={lat},{lon}"
-    # OpenStreetMapベースの静的地図画像プレビュー用URL
     static_map_url = f"https://static-maps.yandex.ru/1.x/?ll={lon},{lat}&z=8&size=650,300&l=map&pt={lon},{lat},pm2rdl"
 
     try:
         url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&zoom=10"
-        headers = {"User-Agent": "ADSB-Military-Tracker/2.9"}
+        headers = {"User-Agent": "ADSB-Military-Tracker/3.1"}
         res = requests.get(url, headers=headers, timeout=5).json()
         
         address = res.get("address", {})
@@ -298,10 +300,9 @@ def send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, o
             {"name": "🛫 出発地", "value": origin, "inline": True},
             {"name": "🛬 目的地", "value": destination, "inline": True},
         ],
-        "footer": {"text": "ADSB Military Tracker - Map Integrated"}
+        "footer": {"text": "ADSB Military Tracker - E35L Excluded"}
     }
 
-    # 地図画像URLが取得できている場合はEmbedに画像（プレビュー）として埋め込む
     if map_image_url:
         embed_data["image"] = {"url": map_image_url}
 
@@ -376,7 +377,7 @@ def check_military_takeoff():
 
 
 if __name__ == "__main__":
-    print("米軍機・特殊機（地図連携版）システムを開始しました...")
+    print("米軍機・特殊機（E35L除外対応版）システムを開始しました...")
     
     send_startup_notification()
     
