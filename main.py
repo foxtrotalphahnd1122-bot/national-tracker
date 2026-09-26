@@ -133,10 +133,10 @@ def is_target_aircraft(ac):
     own_op = str(ac.get("ownOp", "")).strip().lower()
     flight = str(ac.get("flight", "")).strip().lower()
 
-    # 1. 運用者（own_op）が USAF または Omega Air に完全に合致するか厳格にチェック
+    # 1. 運用者（own_op）が USAF または Omega Air に完全に合致するかチェック
     is_valid_operator = any(op in own_op for op in ALLOWED_OPERATORS)
     if not is_valid_operator:
-        return False  (= 該当しない場合はここで完全に弾く)
+        return False
 
     # 2. 除外対象機種のチェック
     for exclude in EXCLUDE_TYPES:
@@ -161,7 +161,6 @@ def is_target_aircraft(ac):
         if any(k in ac_type or k in desc or k in flight for k in ["135", "w135", "r135", "rc135", "sentry", "boeing707", "b707", "kdc10", "kc46", "vc25", "e-3", "e-4", "e-6", "e-8", "rivet", "titan", "sam"]):
             is_target_type = True
 
-    # USAF または Omega Air かつ、指定のコールサインまたは機種に該当するもののみ通過
     if is_target_callsign or is_target_type:
         return True
 
