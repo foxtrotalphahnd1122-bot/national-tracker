@@ -19,7 +19,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def log_message(self, format, *args):
-        return  # ログをキレイに保つため無効化
+        return  # サーバーアクセスの標準ログを抑制
 
 def start_dummy_server():
     port = int(os.environ.get("PORT", 10000))
@@ -31,7 +31,7 @@ threading.Thread(target=start_dummy_server, daemon=True).start()
 # === 設定項目 ===
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 FLIGHTAWARE_API_KEY = os.environ.get("FLIGHTAWARE_API_KEY")
-CHECK_INTERVAL = int(os.environ.get("CHECK_INTERVAL", "60"))
+CHECK_INTERVAL = int(os.environ.get("CHECK_INTERVAL", "30"))
 
 JAPAN_AIRPORT_PREFIXES = ("RJ", "RO")
 
@@ -84,6 +84,7 @@ if not DISCORD_WEBHOOK_URL:
 
 in_air_states = {}
 notified_icaos = set()
+low_altitude_notified = set()
 
 
 def get_jst_now_str():
@@ -91,30 +92,45 @@ def get_jst_now_str():
     return datetime.now(jst).strftime('%Y-%m-%d %H:%M:%S (JST)')
 
 
+# === クールなカスタムロガー関数 ===
+def log_info(message):
+    print(f"🟢 [INFO] [{get_jst_now_str()}] {message}")
+
+def log_warn(message):
+    print(f"⚠️ [WARN] [{get_jst_now_str()}] {message}")
+
+def log_error(message):
+    print(f"❌ [ERROR] [{get_jst_now_str()}] {message}")
+
+def log_alert(message):
+    print(f"🚨 [ALERT] [{get_jst_now_str()}] {message}")
+
+
 def send_startup_notification():
     payload = {
-        "content": "🚀 **【システム起動成功】E35L除外追加版プログラムがLive化しました！**",
+        "content": "✨ **【システム起動成功】リッチロガー搭載・完璧版プログラムが稼働を開始しました！**",
         "embeds": [{
-            "title": "🚀 起動・接続テスト",
+            "title": "🚀 起動・接続テスト (Production Ready)",
             "color": 0x2ECC71,
             "fields": [
-                {"name": "ステータス", "value": "E35L除外フィルター・マップ連携稼働中", "inline": True},
-                {"name": "更新間隔", "value": f"{CHECK_INTERVAL}秒", "inline": True},
+                {"name": "ステータス", "value": f"高速ポーリング({CHECK_INTERVAL}秒)・降下警戒・除外フィルター完備", "inline": True},
                 {"name": "時刻", "value": get_jst_now_str(), "inline": True},
             ],
-            "footer": {"text": "ADSB Military Tracker - E35L Excluded"}
+            "footer": {"text": "ADSB Military Tracker - Perfect Edition with Cool Logger"}
         }]
     }
     try:
         requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
-        print(f"[{get_jst_now_str()}] 起動直後テスト通知の送信成功！")
+        log_info("起動テスト通知の送信に成功しました。")
     except Exception as e:
-        print(f"起動テスト送信エラー: {e}")
+        log_error(f"起動テスト送信エラー: {e}")
 
 
-def get_embed_color(ac_type, is_japan_destination):
+def get_embed_color(ac_type, is_japan_destination, is_low_altitude=False):
+    if is_low_altitude:
+        return 0xE67E22  # オレンジ（降下・着陸警戒）
     if is_japan_destination:
-        return 0xFF0000
+        return 0xFF0000  # 赤（日本国内目的地）
 
     type_clean = ac_type.lower().replace(" ", "").replace("-", "")
 
@@ -142,12 +158,10 @@ def is_target_aircraft(ac):
     own_op = str(ac.get("ownOp", "")).strip().lower()
     flight = str(ac.get("flight", "")).strip().lower()
 
-    # 1. 除外対象の運用者名をチェック
     for ex_op in EXCLUDE_OPERATORS:
         if ex_op in own_op:
             return False
 
-    # 2. 除外対象の機種をチェック（E35L, EC35, C150, A400等）
     for exclude in EXCLUDE_TYPES:
         exclude_clean = exclude.replace("-", "")
         if (exclude in ac_type or exclude_clean in ac_type or
@@ -188,7 +202,7 @@ def get_location_info(lat, lon):
 
     try:
         url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&zoom=10"
-        headers = {"User-Agent": "ADSB-Military-Tracker/3.1"}
+        headers = {"User-Agent": "ADSB-Military-Tracker/4.1"}
         res = requests.get(url, headers=headers, timeout=5).json()
         
         address = res.get("address", {})
@@ -219,7 +233,7 @@ def get_location_info(lat, lon):
         return location_str, static_map_url
 
     except Exception as e:
-        print(f"逆ジオコーディングエラー: {e}")
+        log_warn(f"逆ジオコーディングエラー: {e}")
         fallback_str = f"📍 [Googleマップで位置を確認]({google_maps_url}) {coord_str}"
         return fallback_str, static_map_url
 
@@ -263,7 +277,7 @@ def get_flight_route(flight_number):
                 destination = (latest.get("destination") or {}).get("code") or "不明"
                 return origin, destination
     except Exception as e:
-        print(f"目的地取得エラー: {e}")
+        log_warn(f"目的地取得エラー: {e}")
 
     return "不明", "不明"
 
@@ -275,11 +289,14 @@ def send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, o
     op_str = own_op if own_op else "USAF / Omega Air"
     direction_str = get_direction_text(track)
     is_japan_airport = is_destination_japan_airport(destination)
+    is_low_alt_alert = (event_type == "降下・着陸警戒")
     detection_time_str = get_jst_now_str()
 
-    embed_color = get_embed_color(type_str, is_japan_airport)
+    embed_color = get_embed_color(type_str, is_japan_airport, is_low_alt_alert)
 
-    if is_japan_airport:
+    if is_low_alt_alert:
+        content_text = f"🛬 **【着陸警戒】{type_str} ({tail_str}) が高度 7,500 ft 未満 ({alt} ft) に降下しました！付近の空港に着陸する可能性があります。** ⚠️"
+    elif is_japan_airport:
         content_text = f"🚨 **【重要】{type_str} ({tail_str}) の目的地が「日本の空港 ({destination})」に設定されました！** @everyone"
     else:
         content_text = f"✈️ **【米空軍/オメガ{event_type}】{type_str}: {tail_str} (Callsign: {flight_str})**"
@@ -300,7 +317,7 @@ def send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, o
             {"name": "🛫 出発地", "value": origin, "inline": True},
             {"name": "🛬 目的地", "value": destination, "inline": True},
         ],
-        "footer": {"text": "ADSB Military Tracker - E35L Excluded"}
+        "footer": {"text": "ADSB Military Tracker - Cool Logger Edition"}
     }
 
     if map_image_url:
@@ -313,13 +330,13 @@ def send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, o
 
     try:
         requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
-        print(f"[{get_jst_now_str()}] Discord通知完了({event_type}): {type_str} {tail_str} ({flight_str})")
+        log_info(f"Discord通知送信成功 [{event_type}]: 機種={type_str}, Tail={tail_str}, Callsign={flight_str}")
     except Exception as e:
-        print(f"送信エラー: {e}")
+        log_error(f"Discord送信エラー: {e}")
 
 
 def check_military_takeoff():
-    global in_air_states, notified_icaos
+    global in_air_states, notified_icaos, low_altitude_notified
 
     url = "https://api.adsb.lol/v2/mil"
     try:
@@ -356,9 +373,10 @@ def check_military_takeoff():
             is_takeoff = (is_in_air_last is False and is_in_air_current is True)
             is_new_detection = (icao not in notified_icaos and is_in_air_current)
 
+            # 1. 新規検知または離陸の通知
             if is_takeoff or is_new_detection:
                 event_type = "離陸" if is_takeoff else "検知"
-                print(f"【{event_type}】 機種: {ac_type}, Tail: {tail}, Flight: {flight}")
+                log_info(f"【新規{event_type}捕捉】 機種: {ac_type} | Tail: {tail} | Callsign: {flight} | 高度: {alt}ft")
                 
                 location_str, map_image_url = get_location_info(lat, lon)
                 fa_origin, destination = get_flight_route(flight)
@@ -368,16 +386,31 @@ def check_military_takeoff():
                 
                 notified_icaos.add(icao)
 
+            # 2. 高度 7,500 ft 未満降下時の着陸警戒通知
+            if is_in_air_current and isinstance(alt, (int, float)) and alt <= 7500:
+                if icao not in low_altitude_notified:
+                    log_alert(f"【降下警戒】 機種: {ac_type} | Tail: {tail} | 高度低下: {alt} ft")
+                    location_str, map_image_url = get_location_info(lat, lon)
+                    fa_origin, destination = get_flight_route(flight)
+                    origin = fa_origin if fa_origin != "不明" else location_str
+                    
+                    send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, origin, destination, location_str, map_image_url, "降下・着陸警戒")
+                    low_altitude_notified.add(icao)
+            elif isinstance(alt, (int, float)) and alt > 8500:
+                if icao in low_altitude_notified:
+                    low_altitude_notified.remove(icao)
+
             in_air_states[icao] = is_in_air_current
 
         notified_icaos = notified_icaos.intersection(current_batch_icaos)
+        low_altitude_notified = low_altitude_notified.intersection(current_batch_icaos)
 
     except Exception as e:
-        print(f"チェック中エラー: {e}")
+        log_error(f"APIチェック中エラー: {e}")
 
 
 if __name__ == "__main__":
-    print("米軍機・特殊機（E35L除外対応版）システムを開始しました...")
+    log_info("米軍機・特殊機トラッカー（リッチロガー版）システムを開始しました...")
     
     send_startup_notification()
     
