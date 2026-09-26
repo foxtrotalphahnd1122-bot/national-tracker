@@ -68,8 +68,9 @@ TARGET_TYPES = [
     "kc46", "kc-46", "kdc10", "kdc-10", "dc10", "dc-10", "dc103"
 ]
 
-# 5. 明確に除外したい機種（E35L、EC35、C150、A400、各種ヘリ等）
+# 5. 明確に除外したい機種（C172、E35L、EC35、C150、A400、各種ヘリ等）
 EXCLUDE_TYPES = [
+    "c172", "c-172", "cessna172", "cessna 172",
     "e35l", "e-35l",
     "ec35", "ec-35", "ec38", "ec130", "ec145", "as350", "as355", "h125", "h130", "h135", "h145",
     "c150", "c-150", "cessna150", "cessna 150", "c152", "c-152",
@@ -108,7 +109,7 @@ def log_alert(message):
 
 def send_startup_notification():
     payload = {
-        "content": "✨ **【システム起動成功】完全日本語対応・完璧版プログラムが稼働を開始しました！**",
+        "content": "✨ **【システム起動成功】C172除外設定＆完全日本語対応版が稼働を開始しました！**",
         "embeds": [{
             "title": "🚀 起動・接続テスト (Production Ready)",
             "color": 0x2ECC71,
@@ -413,7 +414,7 @@ def check_military_takeoff():
 
 
 if __name__ == "__main__":
-    log_info("米軍機・特殊機トラッカー（完全日本語対応版）システムを開始しました...")
+    log_info("米軍機・特殊機トラッカー（C172除外・完全日本語対応版）システムを開始しました...")
     
     send_startup_notification()
     
