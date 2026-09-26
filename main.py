@@ -5,7 +5,7 @@ import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import requests
 
-# === Renderのポート検知クリア＆501エラー解消用ダミーサーバー ===
+# === 1. Renderのポート検知をクリア＆501エラー解消用ダミーサーバー ===
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -18,21 +18,20 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def log_message(self, format, *args):
-        return  # ログ無効化
+        return  # ログ無効化（UptimeRobotのアクセスによるログの汚れを防ぐ）
 
 def start_dummy_server():
     port = int(os.environ.get("PORT", 10000))
     server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
     server.serve_forever()
 
+# バックグラウンドスレッドで常時ダミーサーバーを稼働させスリープを防止
 threading.Thread(target=start_dummy_server, daemon=True).start()
 
-# === 設定項目 ===
+# === 2. 設定項目 ===
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 FLIGHTAWARE_API_KEY = os.environ.get("FLIGHTAWARE_API_KEY")
-
-# チェック間隔（環境変数が未設定の場合は 1800秒 = 30分）
-CHECK_INTERVAL = int(os.environ.get("CHECK_INTERVAL", "1800"))
+CHECK_INTERVAL = int(os.environ.get("CHECK_INTERVAL", "60"))
 
 JAPAN_AIRPORT_PREFIXES = ("RJ", "RO")
 
@@ -44,7 +43,7 @@ NATIONAL_OPERATORS = [
     "NATIONAL AIRLINES", "NATIONAL AIR CARGO", "NATIONAL CARGO", "NATIONAL AIR"
 ]
 
-# 3. ADS-B 表記に対応した指定機種コード（すべて大文字表記）
+# 3. ADS-B（adsb.lol）表記に対応した指定機種コード（すべて大文字表記）
 NATIONAL_TARGET_TYPES = [
     "B744", "B748", "B742", "B741", "B74F", "B74D", "B747", "B-747",
     "A332", "A333", "A339", "A330", "A-330",
@@ -77,7 +76,7 @@ def is_national_airlines(ac):
         return True
 
     # --- 2. 判定要素の抽出 ---
-    is_ncr_callsign = flight.startswith("NCR") or flight.startswith("N8")
+    is_ncr_callsign = flight.startswith("NCR")
     is_national_op = any(op in own_op for op in NATIONAL_OPERATORS)
     
     # 機種コードの一致判定（大文字比較）
@@ -90,11 +89,9 @@ def is_national_airlines(ac):
             break
 
     # --- 3. 総合判定 ---
-    # コールサイン(NCR) または 運用者名(National) が一致していて、対象機種である場合
     if (is_ncr_callsign or is_national_op) and is_target_type:
         return True
 
-    # コールサインが NCR で始まっている場合は機種不問で検知
     if is_ncr_callsign:
         return True
 
@@ -192,19 +189,19 @@ def send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, o
 
     if is_priority_aircraft and is_japan_related:
         content_text = f"🚨🚨🚨 **【超緊急・特別警戒】最重要警戒機 {PRIORITY_TAIL} が日本路線（出発: {origin} / 目的: {destination}）で{event_type}されました！！** @everyone"
-        embed_color = 0x990000  # ダークレッド
+        embed_color = 0x990000
         title_prefix = f"🔥【超極秘/最優先機・日本便】"
     elif is_priority_aircraft:
         content_text = f"📦 **【最優先機検知】{PRIORITY_TAIL} (National Airlines) が{event_type}されました**"
-        embed_color = 0xE67E22  # オレンジ
+        embed_color = 0xE67E22
         title_prefix = f"⚠️【最優先機・海外路線】"
     elif is_dest_japan:
         content_text = f"🚨 **【目的地注意】National Airlines {type_str} ({tail_str}) の目的地が「日本の空港 ({destination})」です！** @everyone"
-        embed_color = 0xFF0000  # 赤色
+        embed_color = 0xFF0000
         title_prefix = f"🇯🇵【日本便検知】"
     else:
-        content_text = f"📦 **【National Airlines Alert】{type_str}: {tail_str} (Callsign: {flight_str}) が{event_type}されました！**"
-        embed_color = 0x3498DB  # 青色
+        content_text = f"📦 **【National Airlines {event_type}】{type_str}: {tail_str} (Callsign: {flight_str})**"
+        embed_color = 0x3498DB
         title_prefix = f"📦"
 
     payload = {
@@ -225,13 +222,12 @@ def send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, o
                     {"name": "🛫 出発地", "value": f"**{origin}**", "inline": True},
                     {"name": "🛬 目的地", "value": f"**{destination}**", "inline": True},
                 ],
-                "footer": {"text": "National Airlines Alert Tracker"}
+                "footer": {"text": "National Airlines Priority Tracker"}
             }
         ]
     }
     try:
-        res = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
-        res.raise_for_status()
+        requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
         print(f"[{time.strftime('%H:%M:%S')}] Discord通知完了({event_type}): {type_str} {tail_str} ({flight_str})")
     except Exception as e:
         print(f"送信エラー: {e}")
@@ -240,8 +236,7 @@ def send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, o
 def check_national_airlines():
     global in_air_states, notified_icaos
 
-    # 民間機・全データエンドポイント（/v2/pia）を使用
-    url = "https://api.adsb.lol/v2/pia"
+    url = "https://api.adsb.lol/v2/mil"
     try:
         res = requests.get(url, timeout=15).json()
         ac_list = res.get("ac", [])
@@ -276,7 +271,6 @@ def check_national_airlines():
             is_takeoff = (is_in_air_last is False and is_in_air_current is True)
             is_new_detection = (icao not in notified_icaos and is_in_air_current)
 
-            # 検知条件に合致した場合にAlertを送信
             if is_takeoff or is_new_detection:
                 event_type = "離陸" if is_takeoff else "検知"
                 print(f"【{event_type}】 National Airlines - 機種: {ac_type}, Tail: {tail}, Flight: {flight}")
@@ -298,7 +292,7 @@ def check_national_airlines():
 
 
 if __name__ == "__main__":
-    print(f"National Airlines Alert モード監視開始 (間隔: {CHECK_INTERVAL}秒)...")
+    print("National Airlines 監視（スリープ防止サーバー同梱版）を開始しました...")
     while True:
         check_national_airlines()
         time.sleep(CHECK_INTERVAL)
