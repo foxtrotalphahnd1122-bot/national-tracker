@@ -35,23 +35,17 @@ CHECK_INTERVAL = int(os.environ.get("CHECK_INTERVAL", "60"))
 
 JAPAN_AIRPORT_PREFIXES = ("RJ", "RO")
 
-# 1. 許可する指定運用者（National除外、純米軍＋オメガ空中給油機）
+# 1. 厳格に許可する運用者（USAF と Omega Air のみ）
 ALLOWED_OPERATORS = [
     "us air force", "usaf", "united states air force",
-    "us navy", "usn", "united states navy",
-    "us marine corps", "usmc", "united states marine corps",
-    "omega air", "omega aerial refueling", "omega tanker",
-    "united states department of defense", "dod"
+    "omega air", "omega aerial refueling", "omega tanker"
 ]
 
 # 2. 米軍特有の代表的コールサイン・ミッションコード
 TARGET_CALLSIGNS = [
-    # 指揮統制・要人輸送
     "titan", "af1", "air force one", "sam", "exec", "venus", "knight",
-    # 偵察・電子戦 (RC-135等)
     "sentry", "recon", "jake", "cobra", "snoop", "bolt", "pyton", "olay", 
     "rivet", "ball", "joint", "comet", "hog", "switch", "viper",
-    # タンカー・給油機 (KC-135, KC-46, KDC-10等)
     "hobo", "gold", "ethyl", "teal", "qid", "m35", "boeing",
     "esso", "shell", "pack", "bptr", "tank", "asco", "lunar"
 ]
@@ -76,23 +70,6 @@ EXCLUDE_TYPES = [
     "blackhawk", "seahawk", "jayhawk", "knighthawk"
 ]
 
-# 5. 世界中の主要な米軍基地・重要拠点および主要国際空港の補助辞書
-AIRPORT_CODE_DICT = {
-    "横田": "OKO (RJTY)", "yokota": "OKO (RJTY)",
-    "厚木": "NJA (RJTA)", "atsugi": "NJA (RJTA)",
-    "嘉手納": "DNA (RODN)", "kadena": "DNA (RODN)",
-    "普天間": "ODT (ROTM)", "futenma": "ROTM",
-    "三沢": "MSJ (RJSM)", "misawa": "MSJ (RJSM)",
-    "岩国": "IWK (RJOI)", "iwakuni": "RJOI",
-    "横須賀": "YOKOSUKA", "佐世保": "SASEBO", "座間": "ZAMA",
-    "那覇": "OKA (ROAH)", "naha": "OKA (ROAH)",
-    "羽田": "HND (RJTT)", "成田": "NRT (RJAA)", "関西": "KIX (RJBB)",
-    "中部": "NGO (RJGG)", "セントレア": "NGO (RJGG)",
-    "アンダーセン": "UAM (PGUA)", "andersen": "UAM (PGUA)",
-    "オスサン": "OSN (RKSO)", "osan": "OSN (RKSO)",
-    "ラムシュタイン": "RMS (ETAR)", "ramstein": "RMS (ETAR)",
-}
-
 if not DISCORD_WEBHOOK_URL:
     raise ValueError("エラー: DISCORD_WEBHOOK_URL が設定されていません。")
 
@@ -107,16 +84,16 @@ def get_jst_now_str():
 
 def send_startup_notification():
     payload = {
-        "content": "🚀 **【システム起動成功】位置情報・地名文字解説強化版プログラムがLive化しました！**",
+        "content": "🚀 **【システム起動成功】USAF・Omega限定 厳格フィルタリング版プログラムがLive化しました！**",
         "embeds": [{
             "title": "🚀 起動・接続テスト",
             "color": 0x2ECC71,
             "fields": [
-                {"name": "ステータス", "value": "座標からの逆ジオコーディング強化 稼働中", "inline": True},
+                {"name": "ステータス", "value": "USAF / Omega Air 限定 稼働中", "inline": True},
                 {"name": "更新間隔", "value": f"{CHECK_INTERVAL}秒", "inline": True},
                 {"name": "時刻", "value": get_jst_now_str(), "inline": True},
             ],
-            "footer": {"text": "ADSB Military Tracker - Location Enhanced"}
+            "footer": {"text": "ADSB Military Tracker - Strict Filter"}
         }]
     }
     try:
@@ -156,9 +133,12 @@ def is_target_aircraft(ac):
     own_op = str(ac.get("ownOp", "")).strip().lower()
     flight = str(ac.get("flight", "")).strip().lower()
 
-    if "national air" in own_op or flight.startswith("ncr") or flight.startswith("rch") or flight.startswith("reach"):
-        return False
+    # 1. 運用者（own_op）が USAF または Omega Air に完全に合致するか厳格にチェック
+    is_valid_operator = any(op in own_op for op in ALLOWED_OPERATORS)
+    if not is_valid_operator:
+        return False  (= 該当しない場合はここで完全に弾く)
 
+    # 2. 除外対象機種のチェック
     for exclude in EXCLUDE_TYPES:
         exclude_clean = exclude.replace("-", "")
         if (exclude in ac_type or exclude_clean in ac_type or
@@ -166,12 +146,6 @@ def is_target_aircraft(ac):
             return False
 
     is_target_callsign = any(cs in flight for cs in TARGET_CALLSIGNS)
-
-    is_allowed_op = False
-    if own_op:
-        is_allowed_op = any(op in own_op for op in ALLOWED_OPERATORS)
-    else:
-        is_allowed_op = True
 
     desc_clean = desc.replace(" ", "").replace("-", "")
     is_target_type = False
@@ -187,17 +161,14 @@ def is_target_aircraft(ac):
         if any(k in ac_type or k in desc or k in flight for k in ["135", "w135", "r135", "rc135", "sentry", "boeing707", "b707", "kdc10", "kc46", "vc25", "e-3", "e-4", "e-6", "e-8", "rivet", "titan", "sam"]):
             is_target_type = True
 
-    if is_target_callsign:
-        return True
-
-    if is_allowed_op and is_target_type:
+    # USAF または Omega Air かつ、指定のコールサインまたは機種に該当するもののみ通過
+    if is_target_callsign or is_target_type:
         return True
 
     return False
 
 
 def get_location_name(lat, lon):
-    """座標からOpenStreetMap APIを用いて詳細な地名や周辺情報を組み立てて返す"""
     if lat is None or lon is None:
         return "位置情報なし"
     
@@ -205,19 +176,17 @@ def get_location_name(lat, lon):
     
     try:
         url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&zoom=10"
-        headers = {"User-Agent": "ADSB-Military-Tracker/2.5"}
+        headers = {"User-Agent": "ADSB-Military-Tracker/2.6"}
         res = requests.get(url, headers=headers, timeout=5).json()
         
         address = res.get("address", {})
         
-        # 取得できる細かい住所要素を抽出
         country = address.get("country", "")
         state = address.get("state", "")
         city = address.get("city") or address.get("town") or address.get("village") or address.get("county", "")
         suburb = address.get("suburb") or address.get("neighbourhood", "")
         aerodrome = address.get("aerodrome") or address.get("military") or address.get("aeroway", "")
 
-        # 組み立て用のテキストリスト
         location_parts = []
         if aerodrome:
             location_parts.append(f"施設/基地: {aerodrome}")
@@ -289,7 +258,7 @@ def send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, o
     flight_str = flight if flight else "不明"
     tail_str = tail if tail else "不明"
     type_str = ac_type if ac_type else "対象機"
-    op_str = own_op if own_op else "米軍/関連機関"
+    op_str = own_op if own_op else "USAF / Omega Air"
     direction_str = get_direction_text(track)
     is_japan_airport = is_destination_japan_airport(destination)
     detection_time_str = get_jst_now_str()
@@ -299,7 +268,7 @@ def send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, o
     if is_japan_airport:
         content_text = f"🚨 **【重要】{type_str} ({tail_str}) の目的地が「日本の空港 ({destination})」に設定されました！** @everyone"
     else:
-        content_text = f"✈️ **【米軍機{event_type}】{type_str}: {tail_str} (Callsign: {flight_str})**"
+        content_text = f"✈️ **【米空軍/オメガ{event_type}】{type_str}: {tail_str} (Callsign: {flight_str})**"
 
     payload = {
         "content": content_text,
@@ -320,7 +289,7 @@ def send_discord_notification(icao, tail, flight, ac_type, own_op, alt, track, o
                     {"name": "🛫 出発地", "value": origin, "inline": True},
                     {"name": "🛬 目的地", "value": destination, "inline": True},
                 ],
-                "footer": {"text": "ADSB Military Tracker - Location Enhanced"}
+                "footer": {"text": "ADSB Military Tracker - Strict Filter"}
             }
         ]
     }
@@ -390,7 +359,7 @@ def check_military_takeoff():
 
 
 if __name__ == "__main__":
-    print("米軍機・特殊機（座標・地名文字解説強化版）システムを開始しました...")
+    print("米軍機・特殊機（USAF/Omega限定フィルタ版）システムを開始しました...")
     
     send_startup_notification()
     
