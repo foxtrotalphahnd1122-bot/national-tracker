@@ -2,7 +2,6 @@ import os
 os.environ["TZ"] = "Asia/Tokyo"
 import time
 import json
-import math
 import threading
 from datetime import datetime, timezone, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -41,8 +40,21 @@ CHECK_INTERVAL = int(os.environ.get("CHECK_INTERVAL", "30"))
 JAPAN_LAT_MIN, JAPAN_LAT_MAX = 24.0, 46.0
 JAPAN_LON_MIN, JAPAN_LON_MAX = 122.0, 146.0
 
-# 検索キーワード
-TARGET_KEYWORDS = ["national", "ncr", "936ca"]
+# ナショナル・エアラインズ 全保有・リース機体の登録番号（レジ）リスト
+TARGET_REGISTRATIONS = [
+    # Boeing 747-400 (F / BCF / ERF)
+    "N756CK", "N916CA", "N919CA", "N927CA", "N936CA", 
+    "N949CA", "N952CA", "N953CA", "N954CA",
+    # Airbus A330 (Passenger)
+    "N828CA", "N898CA", "N880CA",
+    # Boeing 757 (Passenger)
+    "N963CA",
+    # Boeing 777F (Cargo)
+    "N792CA"
+]
+
+# 対応コールサイン
+TARGET_CALLSIGNS = ["NCR"]
 
 # 過去データを保存するファイル名
 HISTORY_FILE = "flight_history.json"
@@ -111,16 +123,16 @@ def send_startup_notification():
     history = load_flight_history()
     recorded_count = len(history)
     payload = {
-        "content": "✨ **【システム起動】全機対応・ナショナル・エアラインズ スマート・トラッカーが稼働を開始しました！**",
+        "content": "✨ **【システム起動】ナショナル・エアラインズ 全機・全コールサイン対応 グローバルトラッカーが稼働を開始しました！**",
         "embeds": [{
-            "title": "🚀 全機検索型フライト監視システム稼働中",
+            "title": "🚀 全機体レジ・コールサイン並行スキャン稼働中",
             "color": 0x2ECC71,
             "fields": [
-                {"name": "監視モード", "value": "民間全機スキャン (adsb.lol v2/all)", "inline": True},
+                {"name": "監視対象", "value": f"全保有機体 ({len(TARGET_REGISTRATIONS)}機) ＆ コールサイン NCR", "inline": True},
                 {"name": "蓄積済み機体データ", "value": f"{recorded_count} 機分の履歴をロード中", "inline": True},
                 {"name": "チェック間隔", "value": f"{CHECK_INTERVAL}秒", "inline": True},
             ],
-            "footer": {"text": "National All-Traffic Tracker"}
+            "footer": {"text": "National Airlines Global Fleet Tracker"}
         }]
     }
     try:
@@ -150,7 +162,7 @@ def get_location_name(lat, lon):
 
     try:
         url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&zoom=10"
-        headers = {"User-Agent": "NationalAllTracker/6.0", "Accept-Language": "ja"}
+        headers = {"User-Agent": "NationalFleetTracker/9.0", "Accept-Language": "ja"}
         res = session.get(url, headers=headers, timeout=3).json()
         address = res.get("address", {})
         country = address.get("country", "")
@@ -178,16 +190,6 @@ def is_near_japan(lat, lon):
         return False
     return (JAPAN_LAT_MIN <= lat <= JAPAN_LAT_MAX) and (JAPAN_LON_MIN <= lon <= JAPAN_LON_MAX)
 
-def is_target_aircraft(ac):
-    own_op = str(ac.get("ownOp", "")).strip().lower()
-    flight = str(ac.get("flight", "")).strip().lower()
-    tail = str(ac.get("r", "")).strip().lower()
-    desc = str(ac.get("desc", "")).strip().lower()
-
-    # キーワードのいずれかが含まれているかをチェック
-    combined_text = f"{own_op} {flight} {tail} {desc}"
-    return any(keyword in combined_text for keyword in TARGET_KEYWORDS)
-
 def send_notification_async(tail, flight, ac_type, own_op, alt, track, speed, lat, lon, status_type, sighting_count):
     def _send():
         tail_str = tail if tail else "不明"
@@ -202,7 +204,6 @@ def send_notification_async(tail, flight, ac_type, own_op, alt, track, speed, la
         near_japan = is_near_japan(lat, lon)
         is_n936ca = ("936CA" in tail_str.upper())
 
-        # 配色・演出ロジック
         if near_japan:
             embed_color = 0xFF0000  # 赤
             content_text = f"🇯🇵🚨 **【日本来航確定】ナショナル ({tail_str}) が日本の飛行・駐機エリアに到達しました！（ステータス: {status_type}）** @everyone"
@@ -234,7 +235,7 @@ def send_notification_async(tail, flight, ac_type, own_op, alt, track, speed, la
                 {"name": "過去の観測回数", "value": f"📊 本システムでの通算観測: **{sighting_count} 回目**", "inline": True},
                 {"name": "日本エリア判定", "value": "🔴 圏内（日本接近中/滞在中）" if near_japan else "⚪ 海外・移動中", "inline": True},
             ],
-            "footer": {"text": "National All-Traffic Tracker"}
+            "footer": {"text": "National Airlines Global Fleet Tracker"}
         }
 
         payload = {
@@ -252,76 +253,89 @@ def send_notification_async(tail, flight, ac_type, own_op, alt, track, speed, la
 
 def monitor_loop():
     global aircraft_states
-    # 全機対象のエンドポイントに変更
-    url = "https://api.adsb.lol/v2/all"
+    found_aircrafts = {}
 
-    try:
-        res = session.get(url, timeout=15).json()
-        ac_list = res.get("ac", [])
-        current_batch_icaos = set()
+    # 1. 全保有レジ（登録番号）を個別にグローバル検索
+    for reg in TARGET_REGISTRATIONS:
+        url = f"https://api.adsb.lol/v2/reg/{reg}"
+        try:
+            res = session.get(url, timeout=4).json()
+            for ac in res.get("ac", []):
+                icao = ac.get("hex", "").strip()
+                if icao:
+                    found_aircrafts[icao] = ac
+        except Exception:
+            pass
 
-        for ac in ac_list:
-            if not is_target_aircraft(ac):
-                continue
+    # 2. コールサイン (NCR) でのグローバル検索
+    for callsign in TARGET_CALLSIGNS:
+        url = f"https://api.adsb.lol/v2/callsign/{callsign}"
+        try:
+            res = session.get(url, timeout=4).json()
+            for ac in res.get("ac", []):
+                icao = ac.get("hex", "").strip()
+                if icao:
+                    found_aircrafts[icao] = ac
+        except Exception:
+            pass
 
-            icao = ac.get("hex", "").strip()
-            if not icao:
-                continue
+    # 検出された機体情報の処理
+    for icao, ac in found_aircrafts.items():
+        tail = ac.get("r", "N/A").strip().upper()
+        if not tail or tail == "N/A":
+            tail = icao
+            
+        flight = ac.get("flight", "N/A").strip()
+        ac_type = ac.get("t", ac.get("desc", "不明")).strip()
+        own_op = ac.get("ownOp", "不明").strip()
+        alt = ac.get("alt_baro")
+        track = ac.get("track")
+        speed = ac.get("speed")
+        lat = ac.get("lat")
+        lon = ac.get("lon")
 
-            current_batch_icaos.add(icao)
+        if lat is None or lon is None:
+            continue
 
-            tail = ac.get("r", "N/A").strip().upper()
-            flight = ac.get("flight", "N/A").strip()
-            ac_type = ac.get("t", ac.get("desc", "不明")).strip()
-            own_op = ac.get("ownOp", "不明").strip()
-            alt = ac.get("alt_baro")
-            track = ac.get("track")
-            speed = ac.get("speed")
-            lat = ac.get("lat")
-            lon = ac.get("lon")
+        is_ground = (alt == "ground") or (isinstance(alt, (int, float)) and alt < 100)
+        is_currently_in_air = not is_ground
+        near_japan = is_near_japan(lat, lon)
 
-            is_ground = (alt == "ground") or (isinstance(alt, (int, float)) and alt < 100)
-            is_currently_in_air = not is_ground
-            near_japan = is_near_japan(lat, lon)
+        if icao not in aircraft_states:
+            status_type = "地上駐機・スポットイン" if is_ground else "新規空中検知"
+            sighting_count = record_flight_event(tail, flight, ac_type, status_type, lat, lon)
+            log_info(f"【新規発見・履歴記録】 Tail: {tail} | 状態: {status_type} | 通算: {sighting_count}回目")
+            
+            aircraft_states[icao] = {
+                "in_air": is_currently_in_air,
+                "last_status": status_type,
+                "tail": tail,
+                "near_japan": near_japan
+            }
+            send_notification_async(tail, flight, ac_type, own_op, alt, track, speed, lat, lon, status_type, sighting_count)
+        else:
+            last_state = aircraft_states[icao]
+            last_in_air = last_state["in_air"]
+            last_near_japan = last_state["near_japan"]
 
-            if icao not in aircraft_states:
-                status_type = "地上駐機・スポットイン" if is_ground else "新規空中検知"
+            if last_in_air != is_currently_in_air:
+                status_type = "離陸 (Takeoff)" if is_currently_in_air else "着陸・スポットイン (Landing)"
                 sighting_count = record_flight_event(tail, flight, ac_type, status_type, lat, lon)
-                log_info(f"【新規発見・履歴記録】 Tail: {tail} | 状態: {status_type} | 通算: {sighting_count}回目")
-                
-                aircraft_states[icao] = {
-                    "in_air": is_currently_in_air,
-                    "last_status": status_type,
-                    "tail": tail,
-                    "near_japan": near_japan
-                }
+                log_info(f"【状態変化】 Tail: {tail} が {status_type} しました。")
                 send_notification_async(tail, flight, ac_type, own_op, alt, track, speed, lat, lon, status_type, sighting_count)
-            else:
-                last_state = aircraft_states[icao]
-                last_in_air = last_state["in_air"]
-                last_near_japan = last_state["near_japan"]
+                
+                aircraft_states[icao]["in_air"] = is_currently_in_air
+                aircraft_states[icao]["last_status"] = status_type
 
-                if last_in_air != is_currently_in_air:
-                    status_type = "離陸 (Takeoff)" if is_currently_in_air else "着陸・スポットイン (Landing)"
-                    sighting_count = record_flight_event(tail, flight, ac_type, status_type, lat, lon)
-                    log_info(f"【状態変化】 Tail: {tail} が {status_type} しました。")
-                    send_notification_async(tail, flight, ac_type, own_op, alt, track, speed, lat, lon, status_type, sighting_count)
-                    
-                    aircraft_states[icao]["in_air"] = is_currently_in_air
-                    aircraft_states[icao]["last_status"] = status_type
-
-                if not last_near_japan and near_japan:
-                    status_type = "日本エリア突入"
-                    sighting_count = record_flight_event(tail, flight, ac_type, status_type, lat, lon)
-                    log_info(f"【日本エリア突入】 Tail: {tail} が日本の領域に入りました！")
-                    send_notification_async(tail, flight, ac_type, own_op, alt, track, speed, lat, lon, status_type, sighting_count)
-                    aircraft_states[icao]["near_japan"] = near_japan
-
-    except Exception as e:
-        log_error(f"APIチェック中エラー: {e}")
+            if not last_near_japan and near_japan:
+                status_type = "日本エリア突入"
+                sighting_count = record_flight_event(tail, flight, ac_type, status_type, lat, lon)
+                log_info(f"【日本エリア突入】 Tail: {tail} が日本の領域に入りました！")
+                send_notification_async(tail, flight, ac_type, own_op, alt, track, speed, lat, lon, status_type, sighting_count)
+                aircraft_states[icao]["near_japan"] = near_japan
 
 if __name__ == "__main__":
-    log_info("ナショナル・エアラインズ 全機対応監視システムを開始しました...")
+    log_info("ナショナル・エアラインズ 全機体グローバル監視システムを開始しました...")
     send_startup_notification()
     
     while True:
