@@ -9,7 +9,7 @@ import requests
 
 # === セッション設定 ===
 session = requests.Session()
-session.headers.update({"User-Agent": "NationalGlobalBulkTracker/16.0"})
+session.headers.update({"User-Agent": "NationalFleetUltimateTracker/20.0"})
 
 # === Renderなどの常時起動プラットフォーム用ダミーサーバー ===
 class HealthCheckHandler(BaseHTTPRequestHandler):
@@ -33,7 +33,8 @@ threading.Thread(target=start_dummy_server, daemon=True).start()
 
 # === 設定項目 ===
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
-CHECK_INTERVAL = int(os.environ.get("CHECK_INTERVAL", "45"))
+# 更新間隔（デフォルトを早めの 300秒 = 5分 に設定。環境変数で変更可能）
+CHECK_INTERVAL = int(os.environ.get("CHECK_INTERVAL", "300"))
 
 # 日本周辺の緯度経度範囲（日本エリア判定用）
 JAPAN_LAT_MIN, JAPAN_LAT_MAX = 24.0, 46.0
@@ -42,7 +43,7 @@ JAPAN_LON_MIN, JAPAN_LON_MAX = 122.0, 146.0
 # ナショナル・エアラインズ 全保有・リース機体の登録番号（レジ）
 TARGET_REGISTRATIONS = {
     "N756CK", "N916CA", "N919CA", "N927CA", "N936CA", 
-    "N949CA", "N952CA", "N953CA", "N954CA", # B747貨物等
+    "N949CA", "N952CA", "N953CA", "N954CA", # B747 貨物機群
     "N828CA", "N898CA", "N880CA",             # A330
     "N963CA",                                # B757
     "N792CA"                                 # B777F
@@ -110,11 +111,14 @@ def get_direction_text(track):
     idx = int((track + 11.25) / 22.5) % 16
     return f"{directions[idx]} ({int(track)}°)"
 
-def get_location_name(lat, lon):
+def get_location_info(lat, lon, icao):
     if lat is None or lon is None:
-        return "位置情報なし", None
+        return "位置情報なし", None, "#"
+    
     coord_str = f"({round(lat, 4)}, {round(lon, 4)})"
     google_maps_url = f"https://www.google.com/maps?q={lat},{lon}"
+    adsb_lol_map_url = f"https://globe.adsb.lol/?icao={icao}" if icao else "https://globe.adsb.lol/"
+
     try:
         url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&zoom=10"
         res = session.get(url, timeout=3).json()
@@ -132,19 +136,20 @@ def get_location_name(lat, lon):
 
         if parts:
             desc = " / ".join(parts)
-            loc_str = f"📍 **{desc}**\n　└ [Googleマップで確認]({google_maps_url}) {coord_str}"
+            loc_str = f"📍 **{desc}**\n　└ [Googleマップ]({google_maps_url}) | [🌐 ADS-B.lol レーダーで見る]({adsb_lol_map_url}) {coord_str}"
         else:
-            loc_str = f"📍 [Googleマップで確認]({google_maps_url}) {coord_str}"
-        return loc_str, google_maps_url
+            loc_str = f"📍 [Googleマップ]({google_maps_url}) | [🌐 ADS-B.lol レーダーで見る]({adsb_lol_map_url}) {coord_str}"
+        return loc_str, google_maps_url, adsb_lol_map_url
     except:
-        return f"📍 [Googleマップで確認]({google_maps_url}) {coord_str}", google_maps_url
+        loc_str = f"📍 [Googleマップ]({google_maps_url}) | [🌐 ADS-B.lol レーダーで見る]({adsb_lol_map_url}) {coord_str}"
+        return loc_str, google_maps_url, adsb_lol_map_url
 
 def is_near_japan(lat, lon):
     if lat is None or lon is None:
         return False
     return (JAPAN_LAT_MIN <= lat <= JAPAN_LAT_MAX) and (JAPAN_LON_MIN <= lon <= JAPAN_LON_MAX)
 
-def send_notification(tail, flight, ac_type, alt, track, speed, lat, lon, status_type, sighting_count):
+def send_notification(tail, flight, ac_type, alt, track, speed, lat, lon, status_type, sighting_count, icao):
     tail_str = tail if tail else "不明"
     flight_str = flight if flight else "不明"
     type_str = ac_type if ac_type else "B747 貨物機"
@@ -153,13 +158,13 @@ def send_notification(tail, flight, ac_type, alt, track, speed, lat, lon, status
     speed_str = f"{speed} kts (約 {int(speed * 1.852)} km/h)" if isinstance(speed, (int, float)) else "不明"
     direction_str = get_direction_text(track)
     
-    location_str, _ = get_location_name(lat, lon)
+    location_str, _, adsb_url = get_location_info(lat, lon, icao)
     near_japan = is_near_japan(lat, lon)
     is_n936ca = ("936CA" in tail_str.upper())
 
     if near_japan:
         embed_color = 0xFF0000
-        content_text = f"🇯🇵🚨 **【日本来航確定】ナショナル・エアラインズ ({tail_str}) が日本の飛行・駐機エリアに到達しました！（ステータス: {status_type}）** @everyone"
+        content_text = f"🇯🇵🚨 **【日本来航確定】ナショナル ({tail_str}) が日本のエリアに到達！（ステータス: {status_type}）** @everyone"
         title_prefix = f"🇯🇵 【日本エリア到達】({status_type})"
     elif is_n936ca:
         embed_color = 0xF1C40F
@@ -175,7 +180,7 @@ def send_notification(tail, flight, ac_type, alt, track, speed, lat, lon, status
         "color": embed_color,
         "fields": [
             {"name": "🕒 検知時刻 (JST)", "value": get_jst_now_str(), "inline": False},
-            {"name": "📍 位置情報", "value": location_str, "inline": False},
+            {"name": "📍 位置情報・レーダーリンク", "value": location_str, "inline": False},
             {"name": "機体番号 (Tail)", "value": f"🌟 **{tail_str}**" if is_n936ca else tail_str, "inline": True},
             {"name": "機種", "value": type_str, "inline": True},
             {"name": "コールサイン", "value": flight_str, "inline": True},
@@ -184,7 +189,7 @@ def send_notification(tail, flight, ac_type, alt, track, speed, lat, lon, status
             {"name": "通算観測", "value": f"📊 **{sighting_count} 回目**", "inline": True},
             {"name": "日本エリア", "value": "🔴 圏内" if near_japan else "⚪ 海外", "inline": True},
         ],
-        "footer": {"text": "National Global Bulk Tracker"}
+        "footer": {"text": "National Global Ultimate Tracker"}
     }
 
     try:
@@ -193,82 +198,48 @@ def send_notification(tail, flight, ac_type, alt, track, speed, lat, lon, status
     except Exception as e:
         log_error(f"Discord通知エラー: {e}")
 
-def run_startup_test():
-    log_info("システム起動テスト：現在検知できる全ナショナル機の強制通知を実行します...")
+def monitor_loop():
+    global aircraft_states
     
+    # 世界全体のデータを広範囲（25000nm）で一括取得
     bulk_url = "https://api.adsb.lol/v2/lat/0/lon/0/dist/25000"
-    found_national = {}
     
+    found_national = {}
     try:
-        res = session.get(bulk_url, timeout=12)
+        res = session.get(bulk_url, timeout=15)
         ac_list = res.json().get("ac", [])
+        log_info(f"グローバルスキャン実施: 取得機体総数 = {len(ac_list)}機")
+        
         for ac in ac_list:
             tail = ac.get("r", "").strip().upper()
             flight = ac.get("flight", "").strip().upper()
-            if tail in TARGET_REGISTRATIONS or flight.startswith("NCR"):
+            ac_desc = ac.get("desc", "").strip().upper()
+            ac_type = ac.get("t", "").strip().upper()
+            
+            # マッチング条件：
+            # 1. 登録番号（レジ）がリストに完全一致
+            # 2. コールサインが "NCR" で始まる
+            # 3. 機種がB744等で、かつコールサインや演算子に関連ワードがある場合も含める
+            is_match = False
+            if tail in TARGET_REGISTRATIONS:
+                is_match = True
+            elif flight.startswith("NCR"):
+                is_match = True
+            elif "NATIONAL" in ac.get("ownOp", "").upper():
+                is_match = True
+
+            if is_match:
                 icao = ac.get("hex", "").strip()
                 if not tail and icao:
                     tail = icao
                 found_national[tail] = ac
-    except Exception as e:
-        log_error(f"起動時テストのスキャンエラー: {e}")
 
-    # 起動通知の送信
-    startup_payload = {
-        "content": f"✨ **【システム起動・テスト完了】ナショナル・エアラインズ 監視システムが稼働しました！**\n現在、世界中でリアルタイム検知された機体数: **{len(found_national)}機**",
-        "embeds": [{
-            "title": "🚀 起動時一斉テスト実行",
-            "color": 0x2ECC71,
-            "fields": [
-                {"name": "検知状況", "value": f"現在電波を捉えている機体: {len(found_national)}機", "inline": True},
-                {"name": "監視対象レジ数", "value": f"{len(TARGET_REGISTRATIONS)} 機", "inline": True},
-            ],
-            "footer": {"text": "National Global Bulk Tracker Startup Test"}
-        }]
-    }
-    try:
-        session.post(DISCORD_WEBHOOK_URL, json=startup_payload, timeout=5)
-    except:
-        pass
-
-    # もし現在捕捉できている機体があれば、一斉にテスト通知を飛ばす
-    if found_national:
-        for tail, ac in found_national.items():
-            flight = ac.get("flight", "N/A").strip()
-            ac_type = ac.get("t", ac.get("desc", "不明")).strip()
-            alt = ac.get("alt_baro")
-            track = ac.get("track")
-            speed = ac.get("speed")
-            lat = ac.get("lat")
-            lon = ac.get("lon")
-            
-            if lat is not None and lon is not None:
-                sighting_count = record_flight_event(tail, flight, ac_type, "起動時テスト検知", lat, lon)
-                send_notification(tail, flight, ac_type, alt, track, speed, lat, lon, "起動時テスト検知", sighting_count)
-                time.sleep(1) # Discordのレートリミット対策
-    else:
-        log_info("現在、世界中で電波を発信しているナショナル機はありません（地上駐機中や圏外の可能性）。")
-
-def monitor_loop():
-    global aircraft_states
-    bulk_url = "https://api.adsb.lol/v2/lat/0/lon/0/dist/25000"
-    
-    try:
-        res = session.get(bulk_url, timeout=12)
-        ac_list = res.json().get("ac", [])
     except Exception as e:
         log_error(f"一括データ取得エラー: {e}")
         return
 
-    found_national = {}
-    for ac in ac_list:
-        tail = ac.get("r", "").strip().upper()
-        flight = ac.get("flight", "").strip().upper()
-        if tail in TARGET_REGISTRATIONS or flight.startswith("NCR"):
-            icao = ac.get("hex", "").strip()
-            if not tail and icao:
-                tail = icao
-            found_national[tail] = ac
+    # 30分に一回（またはループごと）、現在の検知機体数をログ＆Discordステータスレポートとして報告
+    log_info(f"🎯 【ステータス報告】現在捕捉中のナショナル機数: {len(found_national)}機 (監視レジ対象: {len(TARGET_REGISTRATIONS)}機)")
 
     for tail, ac in found_national.items():
         flight = ac.get("flight", "N/A").strip()
@@ -278,6 +249,7 @@ def monitor_loop():
         speed = ac.get("speed")
         lat = ac.get("lat")
         lon = ac.get("lon")
+        icao = ac.get("hex", "")
 
         if lat is None or lon is None:
             continue
@@ -294,7 +266,7 @@ def monitor_loop():
                 "last_status": status_type,
                 "near_japan": near_japan
             }
-            send_notification(tail, flight, ac_type, alt, track, speed, lat, lon, status_type, sighting_count)
+            send_notification(tail, flight, ac_type, alt, track, speed, lat, lon, status_type, sighting_count, icao)
         else:
             last_state = aircraft_states[tail]
             last_in_air = last_state["in_air"]
@@ -303,20 +275,37 @@ def monitor_loop():
             if last_in_air != is_currently_in_air:
                 status_type = "離陸 (Takeoff)" if is_currently_in_air else "着陸 (Landing)"
                 sighting_count = record_flight_event(tail, flight, ac_type, status_type, lat, lon)
-                send_notification(tail, flight, ac_type, alt, track, speed, lat, lon, status_type, sighting_count)
+                send_notification(tail, flight, ac_type, alt, track, speed, lat, lon, status_type, sighting_count, icao)
                 aircraft_states[tail]["in_air"] = is_currently_in_air
                 aircraft_states[tail]["last_status"] = status_type
 
             if not last_near_japan and near_japan:
                 status_type = "日本エリア突入"
                 sighting_count = record_flight_event(tail, flight, ac_type, status_type, lat, lon)
-                send_notification(tail, flight, ac_type, alt, track, speed, lat, lon, status_type, sighting_count)
+                send_notification(tail, flight, ac_type, alt, track, speed, lat, lon, status_type, sighting_count, icao)
                 aircraft_states[tail]["near_japan"] = near_japan
 
 if __name__ == "__main__":
-    log_info("ナショナル・エアラインズ 監視システムを開始します...")
-    run_startup_test()
+    log_info("ナショナル・エアラインズ 究極トラッカーを開始します...")
     
+    # 起動時テスト通知
+    startup_payload = {
+        "content": "✨ **【システム起動】ナショナル・エアラインズ 究極トラッカー（B747・ADS-Bリンク対応版）が稼働を開始しました！**",
+        "embeds": [{
+            "title": "🚀 監視システム稼働中",
+            "color": 0x2ECC71,
+            "fields": [
+                {"name": "監視間隔", "value": f"{CHECK_INTERVAL}秒 ごと", "inline": True},
+                {"name": "対象レジ数", "value": f"{len(TARGET_REGISTRATIONS)} 機 (B747貨物等含む)", "inline": True}
+            ],
+            "footer": {"text": "National Fleet Ultimate Tracker"}
+        }]
+    }
+    try:
+        session.post(DISCORD_WEBHOOK_URL, json=startup_payload, timeout=5)
+    except:
+        pass
+
     while True:
         try:
             monitor_loop()
