@@ -41,8 +41,8 @@ CHECK_INTERVAL = int(os.environ.get("CHECK_INTERVAL", "30"))
 JAPAN_LAT_MIN, JAPAN_LAT_MAX = 24.0, 46.0
 JAPAN_LON_MIN, JAPAN_LON_MAX = 122.0, 146.0
 
-ALLOWED_OPERATORS = ["national air", "national airlines", "ncr"]
-TARGET_CALLSIGNS = ["national", "ncr"]
+# 検索キーワード
+TARGET_KEYWORDS = ["national", "ncr", "936ca"]
 
 # 過去データを保存するファイル名
 HISTORY_FILE = "flight_history.json"
@@ -85,7 +85,6 @@ def save_flight_history(history_data):
 
 def record_flight_event(tail, flight, ac_type, status_type, lat, lon):
     history = load_flight_history()
-    today_str = datetime.now(timezone(timedelta(hours=9))).strftime('%Y-%m-%d')
     
     if tail not in history:
         history[tail] = {"total_sightings": 0, "logs": []}
@@ -94,7 +93,6 @@ def record_flight_event(tail, flight, ac_type, status_type, lat, lon):
     history[tail]["last_seen"] = get_jst_now_str()
     history[tail]["last_status"] = status_type
     
-    # 最新のイベントを記録（最大20件まで保持）
     event_entry = {
         "date": get_jst_now_str(),
         "flight": flight,
@@ -113,16 +111,16 @@ def send_startup_notification():
     history = load_flight_history()
     recorded_count = len(history)
     payload = {
-        "content": "✨ **【システム起動】ナショナル・エアラインズ 履歴学習型スマート・トラッカーが稼働を開始しました！**",
+        "content": "✨ **【システム起動】全機対応・ナショナル・エアラインズ スマート・トラッカーが稼働を開始しました！**",
         "embeds": [{
-            "title": "🚀 過去データ蓄積型フライト監視システム稼働中",
+            "title": "🚀 全機検索型フライト監視システム稼働中",
             "color": 0x2ECC71,
             "fields": [
-                {"name": "監視対象", "value": "ナショナル・エアラインズ全機 ＆ N936CA", "inline": True},
+                {"name": "監視モード", "value": "民間全機スキャン (adsb.lol v2/all)", "inline": True},
                 {"name": "蓄積済み機体データ", "value": f"{recorded_count} 機分の履歴をロード中", "inline": True},
                 {"name": "チェック間隔", "value": f"{CHECK_INTERVAL}秒", "inline": True},
             ],
-            "footer": {"text": "National Memory-Enabled Tracker"}
+            "footer": {"text": "National All-Traffic Tracker"}
         }]
     }
     try:
@@ -152,7 +150,7 @@ def get_location_name(lat, lon):
 
     try:
         url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&zoom=10"
-        headers = {"User-Agent": "NationalHistoryTracker/5.0", "Accept-Language": "ja"}
+        headers = {"User-Agent": "NationalAllTracker/6.0", "Accept-Language": "ja"}
         res = session.get(url, headers=headers, timeout=3).json()
         address = res.get("address", {})
         country = address.get("country", "")
@@ -183,16 +181,12 @@ def is_near_japan(lat, lon):
 def is_target_aircraft(ac):
     own_op = str(ac.get("ownOp", "")).strip().lower()
     flight = str(ac.get("flight", "")).strip().lower()
-    tail = str(ac.get("r", "")).strip().upper()
+    tail = str(ac.get("r", "")).strip().lower()
+    desc = str(ac.get("desc", "")).strip().lower()
 
-    if "N936CA" in tail:
-        return True
-
-    is_valid_op = any(op in own_op for op in ALLOWED_OPERATORS)
-    is_valid_cs = any(cs in flight for cs in TARGET_CALLSIGNS)
-    is_national_str = ("national" in own_op or "national" in flight or "ncr" in own_op or "ncr" in flight)
-
-    return is_valid_op or is_valid_cs or is_national_str
+    # キーワードのいずれかが含まれているかをチェック
+    combined_text = f"{own_op} {flight} {tail} {desc}"
+    return any(keyword in combined_text for keyword in TARGET_KEYWORDS)
 
 def send_notification_async(tail, flight, ac_type, own_op, alt, track, speed, lat, lon, status_type, sighting_count):
     def _send():
@@ -206,7 +200,7 @@ def send_notification_async(tail, flight, ac_type, own_op, alt, track, speed, la
         
         location_str, _ = get_location_name(lat, lon)
         near_japan = is_near_japan(lat, lon)
-        is_n936ca = ("N936CA" in tail_str.upper())
+        is_n936ca = ("936CA" in tail_str.upper())
 
         # 配色・演出ロジック
         if near_japan:
@@ -238,9 +232,9 @@ def send_notification_async(tail, flight, ac_type, own_op, alt, track, speed, la
                 {"name": "高度 / 速度", "value": f"{alt_str} / {speed_str}", "inline": True},
                 {"name": "進行方位", "value": direction_str, "inline": True},
                 {"name": "過去の観測回数", "value": f"📊 本システムでの通算観測: **{sighting_count} 回目**", "inline": True},
-                {"name": "日本エリア判定", "value": "🔴 圏内（日本接近中/滞زام中）" if near_japan else "⚪ 海外・移動中", "inline": True},
+                {"name": "日本エリア判定", "value": "🔴 圏内（日本接近中/滞在中）" if near_japan else "⚪ 海外・移動中", "inline": True},
             ],
-            "footer": {"text": "National History-Enabled Tracker"}
+            "footer": {"text": "National All-Traffic Tracker"}
         }
 
         payload = {
@@ -258,10 +252,11 @@ def send_notification_async(tail, flight, ac_type, own_op, alt, track, speed, la
 
 def monitor_loop():
     global aircraft_states
-    url = "https://api.adsb.lol/v2/mil"
+    # 全機対象のエンドポイントに変更
+    url = "https://api.adsb.lol/v2/all"
 
     try:
-        res = session.get(url, timeout=10).json()
+        res = session.get(url, timeout=15).json()
         ac_list = res.get("ac", [])
         current_batch_icaos = set()
 
@@ -289,11 +284,8 @@ def monitor_loop():
             is_currently_in_air = not is_ground
             near_japan = is_near_japan(lat, lon)
 
-            # 初回検知または状態変化、日本エリア突入時
             if icao not in aircraft_states:
                 status_type = "地上駐機・スポットイン" if is_ground else "新規空中検知"
-                
-                # 履歴ファイルに記録して通算回数を取得
                 sighting_count = record_flight_event(tail, flight, ac_type, status_type, lat, lon)
                 log_info(f"【新規発見・履歴記録】 Tail: {tail} | 状態: {status_type} | 通算: {sighting_count}回目")
                 
@@ -329,7 +321,7 @@ def monitor_loop():
         log_error(f"APIチェック中エラー: {e}")
 
 if __name__ == "__main__":
-    log_info("ナショナル・エアラインズ 履歴学習型監視システムを開始しました...")
+    log_info("ナショナル・エアラインズ 全機対応監視システムを開始しました...")
     send_startup_notification()
     
     while True:
